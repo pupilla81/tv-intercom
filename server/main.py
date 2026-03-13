@@ -6,7 +6,7 @@ Gestisce connessioni WebSocket degli operatori, stato del copione,
 invio istruzioni audio ai canali camera e trigger manuali dalla regia.
 
 Avvio:
-    uvicorn main:app --host 0.0.0.0 --port 8000
+    python -m uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
 """
 
 import asyncio
@@ -20,7 +20,6 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # Aggiungi il path del script-parser
@@ -45,7 +44,7 @@ app = FastAPI(title="TV Intercom Server", version="1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In produzione: restringere al dominio della regia
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -59,18 +58,10 @@ class AppState:
         self.metadata: dict = {}
         self.all_cues: list[Cue] = []
         self.engine: Optional[CueEngine] = None
-
-        # WebSocket connections
-        # camera_id (int) -> WebSocket
         self.operator_connections: dict[int, WebSocket] = {}
-        # Lista connessioni pannello regia (possono essere più monitor)
         self.director_connections: list[WebSocket] = []
-
-        # Ultimo messaggio audio per camera (per replay)
-        # camera_id -> bytes
         self.last_audio: dict[int, bytes] = {}
-
-        # Statistiche
+        self.last_text: dict[int, dict] = {}
         self.start_time: float = time.time()
         self.cues_fired_count: int = 0
 
@@ -93,7 +84,6 @@ async def startup():
 # Helper: notifica la regia
 # ---------------------------------------------------------------------------
 async def notify_directors(event: dict):
-    """Invia un evento JSON a tutti i pannelli regia connessi."""
     msg = json.dumps(event)
     dead = []
     for ws in state.director_connections:
@@ -105,58 +95,68 @@ async def notify_directors(event: dict):
         state.director_connections.remove(ws)
 
 # ---------------------------------------------------------------------------
-# Helper: invia audio a una camera
+# Helper: recupera audio
 # ---------------------------------------------------------------------------
-async def send_audio_to_camera(camera_id: int, audio_bytes: bytes, cue_id: str):
-    """Invia bytes audio (WAV) alla camera specificata via WebSocket."""
-    ws = state.operator_connections.get(camera_id)
+async def _get_audio(instr) -> Optional[bytes]:
+    if instr.audio_file:
+        p = Path(__file__).parent.parent / "script-parser" / instr.audio_file
+        if p.exists():
+            return p.read_bytes()
+        log.warning(f"File audio non trovato: {instr.audio_file}")
+    return None
+
+# ---------------------------------------------------------------------------
+# Helper: invia istruzione a una camera (audio o testo come fallback)
+# ---------------------------------------------------------------------------
+async def send_instruction_to_camera(instr, cue_id: str):
+    ws = state.operator_connections.get(instr.camera)
     if not ws:
-        log.warning(f"Camera {camera_id} non connessa — cue {cue_id} non recapitato")
+        log.warning(f"Camera {instr.camera} non connessa — cue {cue_id} non recapitato")
         return
 
-    # Salva per replay
-    state.last_audio[camera_id] = audio_bytes
+    audio = await _get_audio(instr)
 
     try:
-        # Prima manda un header JSON con metadati
-        header = json.dumps({
-            "type": "instruction",
-            "cue_id": cue_id,
-            "camera": camera_id,
-        })
-        await ws.send_text(header)
-        # Poi manda i bytes audio
-        await ws.send_bytes(audio_bytes)
-        log.info(f"  → CAM {camera_id}: audio inviato ({len(audio_bytes)} bytes)")
+        if audio:
+            # Salva per replay
+            state.last_audio[instr.camera] = audio
+            state.last_text[instr.camera] = {"text": instr.text, "cue_id": cue_id}
+            header = json.dumps({
+                "type": "instruction",
+                "cue_id": cue_id,
+                "camera": instr.camera,
+                "text": instr.text,
+            })
+            await ws.send_text(header)
+            await ws.send_bytes(audio)
+            log.info(f"  → CAM {instr.camera}: audio inviato ({len(audio)} bytes)")
+        else:
+            # Fallback: manda solo il testo
+            state.last_text[instr.camera] = {"text": instr.text, "cue_id": cue_id}
+            msg = json.dumps({
+                "type": "instruction_text",
+                "cue_id": cue_id,
+                "camera": instr.camera,
+                "text": instr.text,
+            })
+            await ws.send_text(msg)
+            log.info(f"  → CAM {instr.camera}: testo inviato (no audio)")
     except Exception as e:
-        log.error(f"Errore invio CAM {camera_id}: {e}")
-        state.operator_connections.pop(camera_id, None)
+        log.error(f"Errore invio CAM {instr.camera}: {e}")
+        state.operator_connections.pop(instr.camera, None)
 
 # ---------------------------------------------------------------------------
 # Callback CueEngine → Dispatcher
 # ---------------------------------------------------------------------------
 def on_cue_fired(fc: FiredCue):
-    """
-    Chiamata dal CueEngine quando un cue scatta.
-    Schedula l'invio audio in parallelo a tutte le camere coinvolte.
-    """
     state.cues_fired_count += 1
     log.info(f"🔔 CUE: {fc.cue.cue_id} (conf: {fc.confidence:.0%})")
-
     asyncio.create_task(_dispatch_cue(fc))
 
 async def _dispatch_cue(fc: FiredCue):
-    """Invia le istruzioni audio a tutte le camere del cue, in parallelo."""
-    tasks = []
-    for instr in fc.cue.instructions:
-        audio = await _get_audio(instr)
-        if audio:
-            tasks.append(send_audio_to_camera(instr.camera, audio, fc.cue.cue_id))
-
+    tasks = [send_instruction_to_camera(instr, fc.cue.cue_id) for instr in fc.cue.instructions]
     if tasks:
         await asyncio.gather(*tasks)
-
-    # Notifica pannello regia
     await notify_directors({
         "type": "cue_fired",
         "cue_id": fc.cue.cue_id,
@@ -164,22 +164,6 @@ async def _dispatch_cue(fc: FiredCue):
         "cameras": [i.camera for i in fc.cue.instructions],
         "matched_text": fc.matched_text,
     })
-
-async def _get_audio(instr) -> Optional[bytes]:
-    """
-    Restituisce i bytes audio per un'istruzione.
-    Priorità: file pre-registrato → TTS (da implementare) → None
-    """
-    if instr.audio_file:
-        p = Path(__file__).parent.parent / "script-parser" / instr.audio_file
-        if p.exists():
-            return p.read_bytes()
-        log.warning(f"File audio non trovato: {instr.audio_file}")
-
-    # TODO Modulo TTS: generare audio da instr.text
-    # Per ora ritorna None — il client mostrerà il testo come fallback
-    log.info(f"  [TTS non ancora implementato] testo: '{instr.text}'")
-    return None
 
 # ---------------------------------------------------------------------------
 # REST API
@@ -208,10 +192,8 @@ async def api_load_script(req: LoadScriptRequest):
 
 @app.get("/api/status")
 async def api_status():
-    """Stato generale del sistema — usato dal pannello regia al caricamento."""
     auto = get_auto_cues(state.all_cues) if state.script_loaded else []
     manual = get_manual_cues(state.all_cues) if state.script_loaded else []
-
     return {
         "script_loaded": state.script_loaded,
         "title": state.metadata.get("title", ""),
@@ -226,7 +208,6 @@ async def api_status():
 
 @app.get("/api/cues")
 async def api_cues():
-    """Lista completa dei cue con stato (fired/pending)."""
     if not state.script_loaded:
         raise HTTPException(status_code=400, detail="Nessun copione caricato")
     return [
@@ -247,35 +228,31 @@ class FireCueRequest(BaseModel):
 
 @app.post("/api/cues/fire")
 async def api_fire_cue(req: FireCueRequest):
-    """Scatta un cue manualmente dal pannello regia."""
     if not state.engine:
         raise HTTPException(status_code=400, detail="Engine non inizializzato")
-    # Cerca il cue in tutti (anche manuali)
     target = next((c for c in state.all_cues if c.cue_id == req.cue_id), None)
     if not target:
         raise HTTPException(status_code=404, detail=f"Cue {req.cue_id} non trovato")
+    if target.fired:
+        raise HTTPException(status_code=409, detail="Cue già scattato")
 
-    # Gestisci manuale e automatico
-    if target.trigger.type == "manual":
-        target.fired = True
-        fc = FiredCue(cue=target, matched_text="[MANUALE]", confidence=1.0)
-        state.cues_fired_count += 1
-        await _dispatch_cue(fc)
-    else:
-        fc = state.engine.force_fire(req.cue_id)
-        if not fc:
-            raise HTTPException(status_code=409, detail="Cue già scattato")
-
+    target.fired = True
+    fc = FiredCue(cue=target, matched_text="[MANUALE]", confidence=1.0)
+    state.cues_fired_count += 1
+    if target.trigger.type == "line":
+        state.engine.pointer = max(state.engine.pointer, state.all_cues.index(target) + 1)
+    await _dispatch_cue(fc)
     return {"ok": True, "cue_id": req.cue_id}
 
 @app.post("/api/engine/reset")
 async def api_reset():
-    """Riporta il motore all'inizio (utile per prove e repliche)."""
     if state.engine:
         state.engine.reset()
         for c in state.all_cues:
             c.fired = False
         state.cues_fired_count = 0
+        state.last_text.clear()
+        state.last_audio.clear()
     await notify_directors({"type": "engine_reset"})
     return {"ok": True}
 
@@ -284,10 +261,6 @@ class STTChunkRequest(BaseModel):
 
 @app.post("/api/stt/chunk")
 async def api_stt_chunk(req: STTChunkRequest):
-    """
-    Riceve un chunk di testo dallo STT e lo passa al CueEngine.
-    Chiamato dal Modulo STT in esecuzione sul laptop di regia.
-    """
     if not state.engine:
         return {"fired": []}
     fired = state.engine.process(req.text)
@@ -316,28 +289,30 @@ async def ws_camera(websocket: WebSocket, camera_id: int):
             data = await websocket.receive_text()
             msg = json.loads(data)
 
-            # Richiesta replay ultimo messaggio
             if msg.get("type") == "replay":
                 audio = state.last_audio.get(camera_id)
+                last = state.last_text.get(camera_id)
                 if audio:
-                    header = json.dumps({"type": "replay", "camera": camera_id})
+                    header = json.dumps({
+                        "type": "replay",
+                        "camera": camera_id,
+                        "text": last.get("text", "") if last else "",
+                    })
                     await websocket.send_text(header)
                     await websocket.send_bytes(audio)
-                    log.info(f"  → CAM {camera_id}: replay inviato")
+                elif last:
+                    # Replay solo testo
+                    await websocket.send_text(json.dumps({
+                        "type": "instruction_text",
+                        "cue_id": last.get("cue_id", ""),
+                        "camera": camera_id,
+                        "text": last.get("text", ""),
+                    }))
                 else:
                     await websocket.send_text(json.dumps({"type": "no_replay"}))
 
-            # Messaggio testo verso la regia (dal PTT)
-            elif msg.get("type") == "ptt_text":
-                await notify_directors({
-                    "type": "operator_message",
-                    "camera": camera_id,
-                    "text": msg.get("text", ""),
-                })
-
     except WebSocketDisconnect:
         state.operator_connections.pop(camera_id, None)
-        state.last_audio.pop(camera_id, None)
         log.info(f"📷 CAM {camera_id} disconnessa")
         await notify_directors({
             "type": "camera_disconnected",
@@ -354,7 +329,6 @@ async def ws_director(websocket: WebSocket):
     state.director_connections.append(websocket)
     log.info("🎬 Pannello regia connesso")
 
-    # Manda subito lo stato corrente
     await websocket.send_text(json.dumps({
         "type": "init",
         "cameras_online": list(state.operator_connections.keys()),
@@ -365,13 +339,10 @@ async def ws_director(websocket: WebSocket):
 
     try:
         while True:
-            # La regia può mandare comandi anche via WebSocket
             data = await websocket.receive_text()
             msg = json.loads(data)
-
             if msg.get("type") == "fire_cue":
                 await api_fire_cue(FireCueRequest(cue_id=msg["cue_id"]))
-
             elif msg.get("type") == "reset":
                 await api_reset()
 
@@ -380,7 +351,7 @@ async def ws_director(websocket: WebSocket):
         log.info("🎬 Pannello regia disconnesso")
 
 # ---------------------------------------------------------------------------
-# Serve client files (PWA operatore)
+# Serve PWA operatore
 # ---------------------------------------------------------------------------
 client_path = Path(__file__).parent.parent / "client-operator"
 if client_path.exists():

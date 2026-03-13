@@ -297,6 +297,10 @@ function connect() {
         setAudioState("receiving");
       } else if (msg.type === "no_replay") {
         addLog("Nessun messaggio da riascoltare", "warn");
+      } else if (msg.type === "instruction_text") {
+        updateInstruction(msg.text, msg.cue_id);
+        document.getElementById("instrBox").classList.add("flash");
+        addLog(`▶ ${msg.cue_id}`, "ok");
       }
 
     } else if (event.data instanceof Blob) {
