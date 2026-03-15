@@ -22,10 +22,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# Aggiungi il path del script-parser
+# Aggiungi i path necessari
 sys.path.append(str(Path(__file__).parent.parent / "script-parser"))
+sys.path.append(str(Path(__file__).parent))  # per tts_engine
 from script_parser import load_script, get_auto_cues, get_manual_cues, Cue
 from cue_engine import CueEngine, FiredCue
+from tts_engine import TTSEngine
+
+# API key ElevenLabs — impostala come variabile d'ambiente:
+#   Windows: set ELEVENLABS_API_KEY=la-tua-key
+import os
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -64,6 +71,7 @@ class AppState:
         self.last_text: dict[int, dict] = {}
         self.start_time: float = time.time()
         self.cues_fired_count: int = 0
+        self.tts: Optional[TTSEngine] = None
 
 state = AppState()
 
@@ -74,6 +82,13 @@ SCRIPT_PATH = Path(__file__).parent.parent / "script-parser" / "sample_script.js
 
 @app.on_event("startup")
 async def startup():
+    # Inizializza TTS
+    if ELEVENLABS_API_KEY:
+        state.tts = TTSEngine(api_key=ELEVENLABS_API_KEY)
+        log.info("TTS Engine inizializzato con ElevenLabs")
+    else:
+        log.warning("ELEVENLABS_API_KEY non impostata — TTS disabilitato, solo testo")
+
     if SCRIPT_PATH.exists():
         await load_script_file(str(SCRIPT_PATH))
         log.info(f"Copione caricato: {state.metadata.get('title', '?')}")
@@ -98,11 +113,22 @@ async def notify_directors(event: dict):
 # Helper: recupera audio
 # ---------------------------------------------------------------------------
 async def _get_audio(instr) -> Optional[bytes]:
+    # 1. File pre-registrato manuale (priorità massima)
     if instr.audio_file:
         p = Path(__file__).parent.parent / "script-parser" / instr.audio_file
         if p.exists():
             return p.read_bytes()
         log.warning(f"File audio non trovato: {instr.audio_file}")
+
+    # 2. TTS ElevenLabs (dalla cache o generato al volo)
+    if state.tts and instr.text:
+        loop = asyncio.get_event_loop()
+        audio = await loop.run_in_executor(None, state.tts.get_audio, instr.text)
+        if audio:
+            return audio
+
+    # 3. Nessun audio disponibile — fallback testo
+    log.info(f"  [no audio] testo: '{instr.text}'")
     return None
 
 # ---------------------------------------------------------------------------
@@ -179,6 +205,13 @@ async def load_script_file(path: str):
     state.script_loaded = True
     auto = get_auto_cues(cues)
     state.engine = CueEngine(auto, on_cue_fired=on_cue_fired)
+
+    # Pre-genera tutti gli audio TTS in background
+    if state.tts:
+        log.info("TTS pre-generazione audio in corso...")
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, state.tts.pregenerate_all, cues)
+
     return meta, cues
 
 @app.post("/api/script/load")
@@ -255,6 +288,47 @@ async def api_reset():
         state.last_audio.clear()
     await notify_directors({"type": "engine_reset"})
     return {"ok": True}
+
+@app.get("/api/tts/test-audio")
+async def api_tts_test():
+    """
+    Genera e restituisce un audio di test per la verifica delle cuffie.
+    Chiamato dalla PWA operatore nella schermata di avvio.
+    """
+    if not state.tts:
+        raise HTTPException(status_code=400, detail="TTS non configurato")
+    test_text = "Audio intercom attivo. Se senti questo messaggio, le cuffie funzionano correttamente. Regola il volume a tuo piacimento."
+    loop = asyncio.get_event_loop()
+    audio = await loop.run_in_executor(None, state.tts.get_audio, test_text)
+    if not audio:
+        raise HTTPException(status_code=500, detail="Errore generazione audio di test")
+    from fastapi.responses import Response
+    return Response(content=audio, media_type="audio/mpeg")
+
+@app.get("/api/tts/voices")
+async def api_tts_voices():
+    """Lista le voci disponibili su ElevenLabs."""
+    if not state.tts:
+        raise HTTPException(status_code=400, detail="TTS non configurato")
+    voices = state.tts.list_voices()
+    return {"voices": voices}
+
+class RegenerateRequest(BaseModel):
+    text: str
+
+@app.post("/api/tts/regenerate")
+async def api_tts_regenerate(req: RegenerateRequest):
+    """
+    Rigenera l'audio TTS per un testo specifico.
+    Usato quando un'istruzione viene modificata durante l'evento.
+    """
+    if not state.tts:
+        raise HTTPException(status_code=400, detail="TTS non configurato")
+    loop = asyncio.get_event_loop()
+    audio = await loop.run_in_executor(None, state.tts.regenerate, req.text)
+    if not audio:
+        raise HTTPException(status_code=500, detail="Errore generazione TTS")
+    return {"ok": True, "bytes": len(audio)}
 
 class STTChunkRequest(BaseModel):
     text: str

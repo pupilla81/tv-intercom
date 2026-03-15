@@ -191,6 +191,56 @@
 </head>
 <body>
 
+  <!-- Overlay sblocco audio e test -->
+  <div id="audioUnlock" style="
+    position:fixed; inset:0; z-index:999;
+    background:#0a0a0a;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:16px;
+    padding: 30px 24px;
+  ">
+    <div style="font-size:44px">🎙</div>
+    <div style="font-size:13px; letter-spacing:4px; color:#888; text-transform:uppercase">TV Intercom</div>
+    <div id="camLabelUnlock" style="font-size:11px; letter-spacing:3px; color:#555; margin-top:-8px"></div>
+
+    <!-- Volume slider -->
+    <div style="width:100%; max-width:280px; margin-top:8px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+        <span style="font-size:10px; letter-spacing:2px; color:#555">VOLUME</span>
+        <span id="volLabel" style="font-size:10px; letter-spacing:2px; color:#888">80%</span>
+      </div>
+      <input type="range" id="volSlider" min="0" max="100" value="80"
+        oninput="document.getElementById('volLabel').textContent=this.value+'%'; setVolume(this.value); updateTestVolume(this.value)"
+        style="width:100%; accent-color:#00A8FF; cursor:pointer;" />
+    </div>
+
+    <!-- Test audio -->
+    <button onclick="playTestTone()" id="testBtn" style="
+      width:100%; max-width:280px;
+      background:#141414; border:1px solid #333; border-radius:8px;
+      padding:14px; cursor:pointer;
+      font-size:11px; font-family:monospace;
+      letter-spacing:3px; color:#888;
+      text-transform:uppercase;
+    ">🔊 Test Cuffie</button>
+
+    <div id="testResult" style="font-size:11px; letter-spacing:2px; color:#555; min-height:16px;"></div>
+
+    <!-- Attiva -->
+    <button onclick="unlockAudio()" style="
+      width:100%; max-width:280px;
+      background:#00A8FF; border:none; border-radius:12px;
+      padding:18px; cursor:pointer;
+      font-size:13px; font-family:monospace;
+      letter-spacing:3px; color:#fff; font-weight:bold;
+      text-transform:uppercase; margin-top:8px;
+    ">Entra in servizio</button>
+
+    <div style="font-size:10px; color:#333; letter-spacing:2px; text-align:center">
+      Esegui il test cuffie prima di entrare in servizio
+    </div>
+  </div>
+
   <div class="header">
     <div class="cam-label">CAMERA</div>
     <div class="cam-number disconnected" id="camNumber">—</div>
@@ -292,7 +342,15 @@ function connect() {
       // Messaggio JSON — header di un'istruzione o evento
       const msg = JSON.parse(event.data);
 
-      if (msg.type === "instruction" || msg.type === "replay") {
+      if (msg.type === "instruction") {
+        pendingHeader = msg;
+        setAudioState("receiving");
+        if (msg.text) {
+          updateInstruction(msg.text, msg.cue_id);
+          document.getElementById("instrBox").classList.add("flash");
+          addLog(`▶ ${msg.cue_id}`, "ok");
+        }
+      } else if (msg.type === "replay") {
         pendingHeader = msg;
         setAudioState("receiving");
       } else if (msg.type === "no_replay") {
@@ -327,6 +385,7 @@ async function playAudio(blob, cueId, isReplay) {
 
   const url = URL.createObjectURL(blob);
   currentAudio = new Audio(url);
+  currentAudio.volume = masterVolume;
   isPlaying = true;
 
   setAudioState("playing");
@@ -414,13 +473,92 @@ function updateInstruction(text, cueId) {
 // ---------------------------------------------------------------------------
 // Avvio
 // ---------------------------------------------------------------------------
-// Sblocca audio su primo tocco (requisito browser mobile)
-document.addEventListener("touchstart", () => {
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  ctx.resume();
-}, { once: true });
+// Mostra numero camera nell'overlay
+document.getElementById("camLabelUnlock").textContent = "CAMERA " + CAMERA_ID;
+let audioUnlocked = false;
+let masterVolume = 0.8;
+let audioCtx = null;
 
-connect();
+function getAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  audioCtx.resume();
+  return audioCtx;
+}
+
+function setVolume(val) {
+  masterVolume = val / 100;
+  if (currentAudio) currentAudio.volume = masterVolume;
+}
+
+let testAudio = null;
+
+function updateTestVolume(val) {
+  if (testAudio && !testAudio.paused) {
+    testAudio.volume = val / 100;
+  }
+}
+
+async function playTestTone() {
+  const btn = document.getElementById("testBtn");
+  const result = document.getElementById("testResult");
+
+  btn.style.borderColor = "#00A8FF";
+  btn.style.color = "#00A8FF";
+  btn.textContent = "⏳ Caricamento...";
+  result.textContent = "Richiesta audio al server...";
+  result.style.color = "#00A8FF";
+
+  getAudioCtx(); // sblocca AudioContext
+
+  try {
+    const resp = await fetch(`http://${SERVER_HOST}/api/tts/test-audio`);
+    if (!resp.ok) throw new Error("Server non raggiungibile");
+
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    testAudio = new Audio(url);
+    const audio = testAudio;
+    audio.volume = masterVolume;
+
+    audio.onended = () => {
+      result.textContent = "✓ Hai sentito il messaggio? Cuffie ok!";
+      result.style.color = "#00E676";
+      btn.style.borderColor = "#00E676";
+      btn.style.color = "#00E676";
+      btn.textContent = "🔊 Riprova Test";
+      URL.revokeObjectURL(url);
+    };
+
+    audio.onerror = () => {
+      result.textContent = "Errore riproduzione audio";
+      result.style.color = "#FF1744";
+      btn.textContent = "🔊 Test Cuffie";
+    };
+
+    await audio.play();
+    result.textContent = "▶ Riproduzione in corso...";
+
+  } catch(e) {
+    result.textContent = "Errore: " + e.message;
+    result.style.color = "#FF1744";
+    btn.style.borderColor = "#333";
+    btn.style.color = "#888";
+    btn.textContent = "🔊 Test Cuffie";
+  }
+}
+
+function unlockAudio() {
+  getAudioCtx();
+  audioUnlocked = true;
+  document.getElementById("audioUnlock").style.display = "none";
+  addLog("Audio abilitato — volume: " + Math.round(masterVolume * 100) + "%", "ok");
+  connect();
+}
+
+// Imposta volume su ogni audio riprodotto
+const _origPlayAudio = playAudio;
 </script>
 </body>
 </html>
