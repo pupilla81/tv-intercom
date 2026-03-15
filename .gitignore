@@ -1,0 +1,22 @@
+# API keys e configurazioni locali
+avvia_server.bat
+
+# Cache TTS audio generati da ElevenLabs
+script-parser/audio/_tts_cache/
+
+# File audio pre-registrati (troppo pesanti per il repo)
+script-parser/audio/*.wav
+script-parser/audio/*.mp3
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+
+# Whisper models (pesanti, si scaricano automaticamente)
+*.pt
+
+# OS
+.DS_Store
+Thumbs.db
