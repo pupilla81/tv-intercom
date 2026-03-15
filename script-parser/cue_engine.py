@@ -3,7 +3,10 @@ cue_engine.py
 -------------
 Cuore del sistema automatico.
 Riceve trascrizioni STT in ingresso, le confronta con le battute-trigger
-del copione e scatta i cue quando la similarità supera la soglia.
+del copione e scatta i cue quando la similarita supera la soglia.
+
+Usa una finestra scorrevole sugli ultimi chunk STT per gestire
+le frasi spezzettate tra chunk diversi.
 
 Interfaccia pubblica:
     engine = CueEngine(cues)
@@ -32,9 +35,9 @@ class CueEngine:
 
     Principi:
     - Il puntatore avanza solo in avanti (no backtrack)
-    - Un cue già scattato non può scattare di nuovo
-    - Il cue corrente ha priorità; si controlla anche il successivo
-      per gestire cue molto ravvicinati
+    - Un cue gia scattato non puo scattare di nuovo
+    - Finestra scorrevole sugli ultimi N chunk per gestire
+      frasi spezzettate tra chunk diversi
     """
 
     def __init__(
@@ -42,16 +45,20 @@ class CueEngine:
         cues: list[Cue],
         on_cue_fired: Optional[Callable[[FiredCue], None]] = None,
         lookahead: int = 2,
+        window_max: int = 5,
     ):
         """
         cues:          lista ordinata di cue (solo automatici)
         on_cue_fired:  callback opzionale chiamata ogni volta che un cue scatta
         lookahead:     quanti cue futuri controllare oltre al corrente
+        window_max:    quanti chunk STT tenere in memoria nella finestra scorrevole
         """
         self.cues = cues
         self.on_cue_fired = on_cue_fired
         self.lookahead = lookahead
-        self.pointer = 0           # indice del prossimo cue da scattare
+        self.pointer = 0
+        self._window_chunks: list[str] = []
+        self._window_max: int = window_max
         self._history: list[FiredCue] = []
 
     @property
@@ -66,32 +73,48 @@ class CueEngine:
 
     def process(self, text: str) -> list[FiredCue]:
         """
-        Confronta `text` (chunk di trascrizione STT) con i prossimi
-        cue nel copione. Ritorna la lista dei cue scattati (spesso 0 o 1,
-        raramente più di uno).
+        Confronta il testo (chunk STT) con i prossimi cue nel copione.
+        Usa una finestra scorrevole per gestire frasi spezzettate.
+        Ritorna la lista dei cue scattati.
         """
         if self.is_finished or not text.strip():
             return []
 
+        # Aggiorna la finestra scorrevole
+        self._window_chunks.append(text.strip())
+        if len(self._window_chunks) > self._window_max:
+            self._window_chunks.pop(0)
+
+        # Testa sia il chunk singolo che la finestra concatenata
+        texts_to_test = [
+            text,
+            " ".join(self._window_chunks),
+        ]
+
         fired: list[FiredCue] = []
-        # Controlla il cue corrente + lookahead cue futuri
         window = self.cues[self.pointer : self.pointer + 1 + self.lookahead]
 
         for i, cue in enumerate(window):
             if cue.fired:
                 continue
 
-            score = self._match(text, cue.trigger.text)
+            # Prendi il punteggio migliore tra chunk singolo e finestra
+            best_score = max(
+                self._match(t, cue.trigger.text) for t in texts_to_test
+            )
 
-            if score >= cue.trigger.match_threshold:
+            if best_score >= cue.trigger.match_threshold:
                 cue.fired = True
-                fc = FiredCue(cue=cue, matched_text=text, confidence=score)
+                matched = " ".join(self._window_chunks)
+                fc = FiredCue(cue=cue, matched_text=matched, confidence=best_score)
                 fired.append(fc)
                 self._history.append(fc)
 
-                # Avanza il puntatore se questo era il cue corrente
                 if i == 0:
                     self.pointer += 1
+
+                # Reset finestra dopo un match per evitare falsi positivi
+                self._window_chunks.clear()
 
                 if self.on_cue_fired:
                     self.on_cue_fired(fc)
@@ -120,6 +143,7 @@ class CueEngine:
         for c in self.cues:
             c.fired = False
         self.pointer = 0
+        self._window_chunks.clear()
         self._history.clear()
 
     @staticmethod
@@ -127,7 +151,7 @@ class CueEngine:
         """
         Confronto fuzzy tra la trascrizione e la battuta-trigger.
         Usa token_set_ratio per essere robusto a parole mancanti/aggiunte.
-        Ritorna un valore 0.0–1.0.
+        Ritorna un valore 0.0-1.0.
         """
         score = fuzz.token_set_ratio(
             transcription.lower().strip(),
@@ -142,7 +166,7 @@ class CueEngine:
         next_str = (
             f'"{next_cue.trigger.text[:40]}..."'
             if next_cue and next_cue.trigger.text
-            else "—"
+            else "-"
         )
         return (
             f"CueEngine | {fired_count}/{len(self.cues)} scattati | "
@@ -155,36 +179,31 @@ class CueEngine:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    from script_parser import load_script, get_auto_cues
-
     meta, all_cues = load_script("sample_script.json")
     auto_cues = get_auto_cues(all_cues)
 
     def on_fired(fc: FiredCue):
-        print(f"\n  🔔 CUE SCATTATO: {fc.cue.cue_id} (confidenza: {fc.confidence:.0%})")
+        print(f"\n  FIRED: {fc.cue.cue_id} (confidenza: {fc.confidence:.0%})")
         for instr in fc.cue.instructions:
-            print(f"     📷 CAM {instr.camera}: {instr.text}")
+            print(f"     CAM {instr.camera}: {instr.text}")
 
     engine = CueEngine(auto_cues, on_cue_fired=on_fired)
 
     print("=" * 60)
-    print(f"Test CueEngine — {meta['title']}")
-    print(f"Cue automatici caricati: {len(auto_cues)}")
+    print(f"Test CueEngine con finestra scorrevole")
+    print(f"Cue automatici: {len(auto_cues)}")
     print("=" * 60)
 
-    # Simuliamo trascrizioni STT con variazioni realistiche (parole mancanti, errori)
-    test_transcriptions = [
-        "allora stasera siamo qui riuniti",
-        "sono tornato finalmente sono tornato a casa",          # CUE01 atteso
-        "dopo tutto questo tempo non ci credevo",
-        "non ho paura del buio ho paura di quello che c'è dentro",  # CUE02 atteso (variazione)
-        "tutto sembra diverso da come lo ricordavo",
-        "ti aspettavo da tanto credevo non saresti mai venuto",  # CUE03 atteso (variazione)
+    # Simula frasi spezzettate come farebbe lo STT reale
+    test_chunks = [
+        "ti aspettavo",
+        "da tanto",
+        "credevo che non",
+        "saresti mai tornato",
     ]
 
-    for chunk in test_transcriptions:
-        print(f"\n  STT: \"{chunk}\"")
-        print(f"  {engine.status()}")
+    for chunk in test_chunks:
+        print(f"\n  STT chunk: \"{chunk}\"")
         engine.process(chunk)
 
     print("\n" + "=" * 60)
