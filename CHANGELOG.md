@@ -5,7 +5,25 @@ Formato: `[versione] - data - descrizione`
 
 ---
 
-## [0.3.0] - 2026-03-xx — TTS e Audio Operatore
+## [0.4.0] - 2026-03-15 — STT Deepgram Streaming
+
+### Aggiunto
+- **STT Tracker Deepgram** (`stt-tracker/stt_deepgram.py`)
+  - Streaming WebSocket diretto con Deepgram API (senza dipendenza dall'SDK v6)
+  - Latenza ~2s in locale (vs ~3-4s di Whisper base)
+  - Risultati parziali in tempo reale durante il parlato
+  - Rilevamento fine frase con `utterance_end_ms=1000`
+  - Ricampionamento automatico sample rate nativo → 16kHz
+  - Compatibile con Deepgram SDK v6.0.1+
+
+### Note tecniche
+- Implementazione diretta via `websockets` — non usa le classi dell'SDK
+  che sono cambiate significativamente nella v6
+- Whisper locale (`stt_tracker.py`) rimane disponibile come alternativa offline
+
+---
+
+## [0.3.0] - 2026-03-15 — TTS e Audio Operatore
 
 ### Aggiunto
 - **TTS Engine** (`server/tts_engine.py`) con ElevenLabs API
@@ -104,8 +122,9 @@ Formato: `[versione] - data - descrizione`
 
 ## Prossimi passi pianificati
 
+- [ ] Riduzione latenza STT (utterance_end_ms, chunk size, VPS)
 - [ ] Dashboard regia completa (pannello cue, stato camere, controlli)
-- [ ] Sezione impostazioni (periferica audio, modello Whisper, URL server, voce TTS)
+- [ ] Sezione impostazioni (periferica audio, URL server, voce TTS)
 - [ ] Deploy su VPS con istruzioni complete
 - [ ] Test in esterna con SIM dati
 - [ ] App desktop Electron per la regia
