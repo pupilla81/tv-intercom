@@ -549,6 +549,7 @@ function unlockAudio() {
   startWakeLock();
   startHeartbeat();
   startSilentAudioLoop();
+  setupMediaSession();
 }
 
 // ---------------------------------------------------------------------------
@@ -600,26 +601,63 @@ function startHeartbeat() {
 }
 
 // ---------------------------------------------------------------------------
-// Silent audio loop — mantiene AudioContext vivo con schermo bloccato
+// Stream audio silenzioso continuo — mantiene AudioContext vivo su Android
 // ---------------------------------------------------------------------------
-let silentLoopInterval = null;
+let silentStreamNode = null;
+let silentGainNode = null;
 
 function startSilentAudioLoop() {
-  if (silentLoopInterval) clearInterval(silentLoopInterval);
-  silentLoopInterval = setInterval(() => {
+  try {
+    const ctx = getAudioCtx();
+
+    // Oscillatore a volume ZERO — Android lo riconosce come stream audio attivo
+    const oscillator = ctx.createOscillator();
+    silentGainNode = ctx.createGain();
+    silentGainNode.gain.value = 0.001; // quasi zero ma non proprio 0 (alcuni browser ottimizzano via il silence)
+
+    oscillator.connect(silentGainNode);
+    silentGainNode.connect(ctx.destination);
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 440;
+    oscillator.start();
+    silentStreamNode = oscillator;
+
+    addLog("Stream silenzioso attivo — audio garantito in background", "ok");
+  } catch(e) {
+    addLog("Stream silenzioso non avviato: " + e.message, "warn");
+  }
+
+  // Fallback: controlla e riprende AudioContext ogni 10s
+  setInterval(() => {
     try {
       const ctx = getAudioCtx();
       if (ctx.state === 'suspended') {
-        ctx.resume();
+        ctx.resume().then(() => addLog("AudioContext ripreso", "ok"));
       }
-      // Genera un buffer silenzioso di 0.1s per mantenere l'AudioContext attivo
-      const buffer = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(ctx.destination);
-      source.start();
     } catch(e) {}
-  }, 30000); // ogni 30 secondi
+  }, 10000);
+}
+
+// ---------------------------------------------------------------------------
+// MediaSession API — segnala ad Android che è un'app audio attiva
+// ---------------------------------------------------------------------------
+function setupMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: 'TV Intercom — CAM ' + CAMERA_ID,
+      artist: 'In servizio',
+      album: 'TV Intercom',
+    });
+    navigator.mediaSession.playbackState = 'playing';
+
+    // Handler obbligatori per mantenere la sessione attiva
+    navigator.mediaSession.setActionHandler('play', () => {
+      getAudioCtx().resume();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {});
+    navigator.mediaSession.setActionHandler('stop', () => {});
+  } catch(e) {}
 }
 
 // Imposta volume su ogni audio riprodotto
