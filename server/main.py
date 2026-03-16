@@ -72,6 +72,9 @@ class AppState:
         self.start_time: float = time.time()
         self.cues_fired_count: int = 0
         self.tts: Optional[TTSEngine] = None
+        self.stt_active: bool = False
+        self.stt_device: Optional[int] = None
+        self.stt_engine: str = "deepgram"
 
 state = AppState()
 
@@ -237,6 +240,9 @@ async def api_status():
         "cues_fired": state.cues_fired_count,
         "engine_pointer": state.engine.pointer if state.engine else 0,
         "uptime_seconds": int(time.time() - state.start_time),
+        "stt_active": state.stt_active,
+        "stt_device": state.stt_device,
+        "stt_engine": state.stt_engine,
     }
 
 @app.get("/api/cues")
@@ -290,20 +296,75 @@ async def api_reset():
     return {"ok": True}
 
 @app.get("/api/tts/test-audio")
-async def api_tts_test():
-    """
-    Genera e restituisce un audio di test per la verifica delle cuffie.
-    Chiamato dalla PWA operatore nella schermata di avvio.
-    """
+async def api_tts_test(text: str = None):
+    """Genera audio di test. Se text è specificato usa quello, altrimenti usa il messaggio default."""
     if not state.tts:
         raise HTTPException(status_code=400, detail="TTS non configurato")
-    test_text = "Audio intercom attivo. Se senti questo messaggio, le cuffie funzionano correttamente. Regola il volume a tuo piacimento."
+    test_text = text or "Audio intercom attivo. Se senti questo messaggio, le cuffie funzionano correttamente. Regola il volume a tuo piacimento."
     loop = asyncio.get_event_loop()
     audio = await loop.run_in_executor(None, state.tts.get_audio, test_text)
     if not audio:
         raise HTTPException(status_code=500, detail="Errore generazione audio di test")
     from fastapi.responses import Response
     return Response(content=audio, media_type="audio/mpeg")
+
+@app.get("/api/audio/devices")
+async def api_audio_devices():
+    """Lista le periferiche audio di input disponibili sul server."""
+    try:
+        import sounddevice as sd
+        devices = sd.query_devices()
+        default_input = sd.default.device[0]
+        inputs = []
+        for i, dev in enumerate(devices):
+            if dev["max_input_channels"] > 0:
+                inputs.append({
+                    "index": i,
+                    "name": dev["name"],
+                    "channels": dev["max_input_channels"],
+                    "sample_rate": int(dev["default_samplerate"]),
+                    "is_default": i == default_input,
+                })
+        return {"devices": inputs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ConvertScriptRequest(BaseModel):
+    text: str
+    title: str = ""
+    date: str = ""
+    location: str = ""
+
+@app.post("/api/script/convert")
+async def api_script_convert(req: ConvertScriptRequest):
+    """Converte testo copione in JSON e lo carica nel server."""
+    try:
+        sys.path.append(str(Path(__file__).parent.parent / "tools"))
+        from doc_to_script import parse_script
+        script = parse_script(req.text, req.title, req.date, req.location)
+
+        # Salva il file
+        script_path = Path(__file__).parent.parent / "script-parser" / "script.json"
+        script_path.write_text(
+            json.dumps(script, indent=2, ensure_ascii=False),
+            encoding="utf-8"
+        )
+
+        # Carica nel server
+        meta, cues = await load_script_file(str(script_path))
+        auto = get_auto_cues(cues)
+        manual = get_manual_cues(cues)
+
+        await notify_directors({"type": "script_loaded", "metadata": meta})
+        return {
+            "ok": True,
+            "title": meta["title"],
+            "cues_total": len(cues),
+            "cues_auto": len(auto),
+            "cues_manual": len(manual),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/api/tts/voices")
 async def api_tts_voices():
@@ -329,6 +390,32 @@ async def api_tts_regenerate(req: RegenerateRequest):
     if not audio:
         raise HTTPException(status_code=500, detail="Errore generazione TTS")
     return {"ok": True, "bytes": len(audio)}
+
+class STTStartRequest(BaseModel):
+    device: int = 7
+    engine: str = "deepgram"
+
+@app.post("/api/stt/start")
+async def api_stt_start(req: STTStartRequest):
+    """Registra che lo STT è stato avviato — notifica la dashboard."""
+    state.stt_active = True
+    state.stt_device = req.device
+    state.stt_engine = req.engine
+    await notify_directors({
+        "type": "stt_started",
+        "device": req.device,
+        "engine": req.engine,
+    })
+    log.info(f"STT avviato — device {req.device}, engine {req.engine}")
+    return {"ok": True}
+
+@app.post("/api/stt/stop")
+async def api_stt_stop():
+    """Segnala che lo STT deve fermarsi — notifica la dashboard."""
+    state.stt_active = False
+    await notify_directors({"type": "stt_stopped"})
+    log.info("STT fermato dalla dashboard")
+    return {"ok": True}
 
 class STTChunkRequest(BaseModel):
     text: str
@@ -430,3 +517,16 @@ async def ws_director(websocket: WebSocket):
 client_path = Path(__file__).parent.parent / "client-operator"
 if client_path.exists():
     app.mount("/operator", StaticFiles(directory=str(client_path), html=True), name="operator")
+
+# ---------------------------------------------------------------------------
+# Serve dashboard control room
+# ---------------------------------------------------------------------------
+from fastapi.responses import FileResponse
+
+@app.get("/")
+async def dashboard():
+    """Serve la Control Room dashboard."""
+    dashboard_path = Path(__file__).parent.parent / "tools" / "dashboard.html"
+    if dashboard_path.exists():
+        return FileResponse(str(dashboard_path))
+    return {"message": "TV Intercom Server running. Dashboard non trovata in tools/dashboard.html"}

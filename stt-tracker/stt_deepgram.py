@@ -162,6 +162,24 @@ class DeepgramSTTTracker:
             print(f"  ❌ Errore server: {e}")
             self._stats["errors"] += 1
 
+    def _check_stop_flag(self) -> bool:
+        """Controlla se il server ha segnalato di fermarsi."""
+        try:
+            resp = self._http_client.get(f"{self.server_url}/api/status", timeout=2.0)
+            data = resp.json()
+            return not data.get("stt_active", True)
+        except Exception:
+            return False
+
+    async def _stop_check_loop(self):
+        """Controlla ogni 5s se la dashboard ha richiesto lo stop."""
+        while self._running:
+            await asyncio.sleep(5)
+            if self._check_stop_flag():
+                print("\n  ⏹  Stop ricevuto dalla dashboard.")
+                self._running = False
+                break
+
     async def _send_audio_loop(self, ws):
         """Invia continuamente audio a Deepgram."""
         while self._running:
@@ -250,10 +268,11 @@ class DeepgramSTTTracker:
                 stream.start()
 
                 try:
-                    # Esegui send e receive in parallelo
+                    # Esegui send, receive e check stop in parallelo
                     await asyncio.gather(
                         self._send_audio_loop(ws),
                         self._receive_loop(ws),
+                        self._stop_check_loop(),
                     )
                 except asyncio.CancelledError:
                     pass
