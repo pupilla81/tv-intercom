@@ -883,20 +883,22 @@ async function testTTS() {
 // ---------------------------------------------------------------------------
 async function loadAudioDevices() {
   const sel = document.getElementById('audioDevice');
-  sel.innerHTML = '<option value="">— richiesta permesso microfono... —</option>';
+  sel.innerHTML = '<option value="">— caricamento periferiche... —</option>';
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    sel.innerHTML = '<option value="default">API non supportata</option>';
+    addLog('enumerateDevices non supportato su questo browser', 'err');
+    return;
+  }
 
   try {
-    // Richiedi permesso microfono — necessario per ottenere i label dei dispositivi
-    await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      .then(stream => stream.getTracks().forEach(t => t.stop())); // ottieni permesso poi rilascia
-
     const devices = await navigator.mediaDevices.enumerateDevices();
     const inputs = devices.filter(d => d.kind === 'audioinput');
 
     sel.innerHTML = '';
     if (inputs.length === 0) {
       sel.innerHTML = '<option value="">Nessuna periferica trovata</option>';
-      addLog('Nessuna periferica audio trovata nel browser', 'warn');
+      addLog('Nessuna periferica audio trovata', 'warn');
       return;
     }
 
@@ -904,22 +906,16 @@ async function loadAudioDevices() {
       const opt = document.createElement('option');
       opt.value = d.deviceId;
       opt.textContent = d.label || `Periferica audio ${i + 1}`;
-      if (d.deviceId === 'default') opt.selected = true;
+      if (i === 0) opt.selected = true;
       sel.appendChild(opt);
     });
 
-    addLog(`${inputs.length} periferiche audio trovate`, 'ok');
-
-    // Aggiorna il comando STT con il device selezionato
-    sel.addEventListener('change', () => {
-      const idx = sel.selectedIndex;
-      document.getElementById('sttCmd').textContent =
-        `# Periferica selezionata: ${sel.options[sel.selectedIndex].text}\n# Usa --list-devices per trovare l'indice numerico corretto`;
-    });
+    const hasLabels = inputs.some(d => d.label);
+    addLog(`${inputs.length} periferiche trovate${hasLabels ? '' : ' — abilita permesso microfono per i nomi completi'}`, hasLabels ? 'ok' : 'warn');
 
   } catch(e) {
-    sel.innerHTML = '<option value="">Permesso microfono negato</option>';
-    addLog('Permesso microfono negato — impossibile elencare periferiche', 'err');
+    sel.innerHTML = '<option value="default">Errore enumerazione periferiche</option>';
+    addLog('Errore periferiche: ' + e.message, 'err');
   }
 }
 
