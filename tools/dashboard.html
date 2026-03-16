@@ -409,7 +409,7 @@ textarea:focus { border-color:var(--accent); }
       </div>
       <div class="mt12 row">
         <button class="btn danger" onclick="resetEngine()">⟳ RESET ENGINE</button>
-        <a class="btn" href="http://localhost:8080/docs" target="_blank">📋 API DOCS</a>
+        <a class="btn" id="apiDocsLink" href="#" target="_blank">📋 API DOCS</a>
       </div>
     </div>
   </div>
@@ -570,7 +570,7 @@ textarea:focus { border-color:var(--accent); }
 </div><!-- /main -->
 
 <script>
-const SERVER = 'http://localhost:8080';
+const SERVER = window.location.origin;
 const NUM_CAMS = 5;
 
 // ---------------------------------------------------------------------------
@@ -671,7 +671,7 @@ function buildCamUI() {
     // Link
     const a = document.createElement('a');
     a.className = 'cam-btn';
-    a.href = `http://localhost:8080/operator/?cam=${i}`;
+    a.href = `${SERVER}/operator/?cam=${i}`;
     a.target = '_blank';
     a.innerHTML = `<span class="cam-num" style="font-size:14px">CAM ${i}</span><span class="cam-label">APRI →</span>`;
     links.appendChild(a);
@@ -906,8 +906,8 @@ async function startSTT() {
   const device = document.getElementById('audioDevice').value;
   const engine = document.getElementById('sttEngine').value;
   const script = engine === 'deepgram'
-    ? `python stt-tracker/stt_deepgram.py --device ${device} --server http://localhost:8080`
-    : `python stt-tracker/stt_tracker.py --device ${device} --server http://localhost:8080`;
+    ? `python stt-tracker/stt_deepgram.py --device ${device} --server ${SERVER}`
+    : `python stt-tracker/stt_tracker.py --device ${device} --server ${SERVER}`;
 
   // Notifica il server che lo STT è attivo
   try {
@@ -1003,6 +1003,8 @@ function connectWS() {
 // Init
 // ---------------------------------------------------------------------------
 async function init() {
+  // Imposta link dinamici
+  document.getElementById('apiDocsLink').href = SERVER + '/docs';
   buildCamUI();
   await refreshStatus();
   await loadCues();
