@@ -879,23 +879,47 @@ async function testTTS() {
 }
 
 // ---------------------------------------------------------------------------
-// Periferiche audio (lista da server)
+// Periferiche audio — lette dal browser locale (non dal server)
 // ---------------------------------------------------------------------------
 async function loadAudioDevices() {
+  const sel = document.getElementById('audioDevice');
+  sel.innerHTML = '<option value="">— richiesta permesso microfono... —</option>';
+
   try {
-    const r = await api('GET', '/api/audio/devices');
-    const sel = document.getElementById('audioDevice');
+    // Richiedi permesso microfono — necessario per ottenere i label dei dispositivi
+    await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then(stream => stream.getTracks().forEach(t => t.stop())); // ottieni permesso poi rilascia
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices.filter(d => d.kind === 'audioinput');
+
     sel.innerHTML = '';
-    (r.devices||[]).forEach(d => {
+    if (inputs.length === 0) {
+      sel.innerHTML = '<option value="">Nessuna periferica trovata</option>';
+      addLog('Nessuna periferica audio trovata nel browser', 'warn');
+      return;
+    }
+
+    inputs.forEach((d, i) => {
       const opt = document.createElement('option');
-      opt.value = d.index;
-      opt.textContent = `[${d.index}] ${d.name} — ${d.sample_rate}Hz`;
-      if(d.is_default) opt.selected = true;
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Periferica audio ${i + 1}`;
+      if (d.deviceId === 'default') opt.selected = true;
       sel.appendChild(opt);
     });
+
+    addLog(`${inputs.length} periferiche audio trovate`, 'ok');
+
+    // Aggiorna il comando STT con il device selezionato
+    sel.addEventListener('change', () => {
+      const idx = sel.selectedIndex;
+      document.getElementById('sttCmd').textContent =
+        `# Periferica selezionata: ${sel.options[sel.selectedIndex].text}\n# Usa --list-devices per trovare l'indice numerico corretto`;
+    });
+
   } catch(e) {
-    document.getElementById('audioDevice').innerHTML =
-      '<option value="7">[7] Line In (default)</option><option value="8">[8] Microfono</option>';
+    sel.innerHTML = '<option value="">Permesso microfono negato</option>';
+    addLog('Permesso microfono negato — impossibile elencare periferiche', 'err');
   }
 }
 
@@ -903,28 +927,34 @@ async function loadAudioDevices() {
 // STT
 // ---------------------------------------------------------------------------
 async function startSTT() {
-  const device = document.getElementById('audioDevice').value;
+  const sel    = document.getElementById('audioDevice');
   const engine = document.getElementById('sttEngine').value;
-  const script = engine === 'deepgram'
-    ? `python stt-tracker/stt_deepgram.py --device ${device} --server ${SERVER}`
-    : `python stt-tracker/stt_tracker.py --device ${device} --server ${SERVER}`;
+  const deviceName = sel.options[sel.selectedIndex]?.text || 'default';
 
-  // Notifica il server che lo STT è attivo
+  // Il comando usa --list-devices per trovare l'indice — mostriamo istruzione chiara
+  const script = engine === 'deepgram'
+    ? `python stt-tracker/stt_deepgram.py --server ${SERVER}`
+    : `python stt-tracker/stt_tracker.py --server ${SERVER}`;
+
+  const hint = `# Prima esegui: python stt-tracker/stt_deepgram.py --list-devices\n# Poi scegli il numero corrispondente a: ${deviceName}\n# Esempio: python stt-tracker/stt_deepgram.py --device 7 --server ${SERVER}`;
+
+  // Notifica il server
   try {
-    await api('POST', '/api/stt/start', {device: parseInt(device), engine});
+    await api('POST', '/api/stt/start', {device: 0, engine});
   } catch(e) {}
 
-  document.getElementById('sttCmd').textContent = '> ' + script;
+  document.getElementById('sttCmd').textContent = hint;
   document.getElementById('sttPill').textContent  = 'IN ASCOLTO';
   document.getElementById('sttPill').style.background = 'rgba(0,230,118,0.12)';
   document.getElementById('sttPill').style.color  = 'var(--green)';
   document.getElementById('sttStartBtn').disabled = true;
   document.getElementById('sttStopBtn').disabled  = false;
-  addLog(`Comando STT generato per device ${device} — copiato negli appunti`, 'info');
+  addLog(`Periferica selezionata: ${deviceName}`, 'info');
 
-  // Copia negli appunti
-  navigator.clipboard.writeText(script).then(() => {
-    addLog('✓ Comando copiato negli appunti', 'ok');
+  // Copia il comando base negli appunti
+  const cmd = `python stt-tracker/stt_deepgram.py --device 7 --server ${SERVER}`;
+  navigator.clipboard.writeText(cmd).then(() => {
+    addLog('✓ Comando copiato negli appunti (modifica --device se necessario)', 'ok');
   }).catch(()=>{});
 }
 
