@@ -1,0 +1,46 @@
+ATTO 1
+
+SCENA 1 — L'arrivo
+
+MARCO
+Sono tornato, finalmente sono tornato a casa.
+[CAM1: Primo piano su Marco, segui la sua espressione]
+[CAM2: Allarga, vuoi vedere tutta la piazza alle sue spalle]
+
+MARCO
+Non ho paura del buio, ho paura di ciò che nasconde.
+[CAM1: Zoom in lento, f due punto otto, tieni il fuoco]
+[CAM3: Controcampo sulla platea, cattura le reazioni]
+
+[MANUALE: Cue drone]
+[CAM4: Drone, alzati a venti metri, inquadra tutta la piazza]
+
+SCENA 2 — L'incontro con Sara
+
+SARA
+Ti aspettavo da tanto, credevo non saresti mai tornato.
+[CAM1: Stai su Marco, non mollarlo]
+[CAM2: Primo piano su Sara, cogliila mentre parla]
+[CAM5: Due shot, tienili entrambi in campo]
+
+ATTO 2
+
+SCENA 1 — Il confronto
+
+ELENA
+Quella notte ho visto tutto, ero lì, ricordi?
+[CAM2: Zoom in su Elena, espressione accusatoria]
+[CAM3: Tieni wide, vuoi vedere la reazione di tutti e tre]
+
+MARCO
+Basta! Non voglio più sentire questa storia!
+[CAM1: Stretto su Marco, coglilo nell'esplosione]
+[CAM4: Muoviti verso sinistra, vuoi la fuga di Marco]
+[CAM5: Standby, pronto per l'uscita]
+
+[MANUALE: Cue finale]
+[CAM1: Stai pronto per il finale, zoom out lento]
+[CAM2: Stai pronto per il finale, zoom out lento]
+[CAM3: Wide totale, cattura tutto il palco per il finale]
+[CAM4: Wide totale, cattura tutto il palco per il finale]
+[CAM5: Wide totale, cattura tutto il palco per il finale]
