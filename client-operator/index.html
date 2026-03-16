@@ -607,13 +607,47 @@ function startHeartbeat() {
   heartbeatInterval = setInterval(() => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "ping" }));
-    } else if (ws && ws.readyState === WebSocket.CLOSED) {
-      // Riconnessione aggressiva
+    } else if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
       addLog("Connessione persa — riconnessione...", "warn");
       connect();
     }
-  }, 15000); // ogni 15 secondi
+  }, 5000); // controlla ogni 5 secondi invece di 15
 }
+
+// ---------------------------------------------------------------------------
+// Visibility change — riconnette immediatamente quando lo schermo si sblocca
+// ---------------------------------------------------------------------------
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible') {
+    addLog("Schermo sbloccato — verifica connessione...", "");
+
+    // Riprendi AudioContext se sospeso
+    if (audioCtx && audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+      addLog("AudioContext ripreso", "ok");
+    }
+
+    // Riconnetti WebSocket se disconnesso
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      addLog("Riconnessione in corso...", "warn");
+      connect();
+      // Dopo la riconnessione chiedi l'ultimo messaggio perso
+      setTimeout(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "replay" }));
+          addLog("Richiesto replay ultimo messaggio", "info");
+        }
+      }, 1500);
+    }
+
+    // Riattiva Wake Lock
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+      } catch(e) {}
+    }
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Stream audio silenzioso continuo — mantiene AudioContext vivo su Android
@@ -628,7 +662,7 @@ function startSilentAudioLoop() {
     // Oscillatore a volume ZERO — Android lo riconosce come stream audio attivo
     const oscillator = ctx.createOscillator();
     silentGainNode = ctx.createGain();
-    silentGainNode.gain.value = 0.001; // quasi zero ma non proprio 0 (alcuni browser ottimizzano via il silence)
+    silentGainNode.gain.value = 0.00001; // volume infinitesimale — inudibile ma mantiene AudioContext attivo
 
     oscillator.connect(silentGainNode);
     silentGainNode.connect(ctx.destination);
@@ -673,6 +707,32 @@ function setupMediaSession() {
     navigator.mediaSession.setActionHandler('pause', () => {});
     navigator.mediaSession.setActionHandler('stop', () => {});
   } catch(e) {}
+}
+
+// ---------------------------------------------------------------------------
+// Service Worker — registrazione
+// ---------------------------------------------------------------------------
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('/operator/service-worker.js', {
+        scope: '/operator/'
+      });
+      addLog('Service Worker registrato', 'ok');
+
+      // Aggiorna automaticamente se disponibile nuova versione
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            newWorker.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+    } catch(e) {
+      addLog('Service Worker non registrato: ' + e.message, 'warn');
+    }
+  });
 }
 
 // Imposta volume su ogni audio riprodotto
