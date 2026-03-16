@@ -983,7 +983,7 @@ async function stopSTT() {
 // ---------------------------------------------------------------------------
 let ws = null;
 function connectWS() {
-  const wsUrl = SERVER.replace('http','ws') + '/ws/director';
+  const wsUrl = SERVER.replace('https','wss').replace('http','ws') + '/ws/director';
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {

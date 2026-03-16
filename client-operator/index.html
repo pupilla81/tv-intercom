@@ -282,7 +282,9 @@
 const params = new URLSearchParams(window.location.search);
 const CAMERA_ID = parseInt(params.get("cam") || "1");
 const SERVER_HOST = params.get("host") || window.location.host;
-const WS_URL = `ws://${SERVER_HOST}/ws/camera/${CAMERA_ID}`;
+const WS_PROTOCOL = window.location.protocol === "https:" ? "wss" : "ws";
+const HTTP_PROTOCOL = window.location.protocol === "https:" ? "https" : "http";
+const WS_URL = `${WS_PROTOCOL}://${SERVER_HOST}/ws/camera/${CAMERA_ID}`;
 
 document.getElementById("camNumber").textContent = CAMERA_ID;
 document.getElementById("camNumber").classList.remove("disconnected");
@@ -378,40 +380,52 @@ function connect() {
 // Audio
 // ---------------------------------------------------------------------------
 async function playAudio(blob, cueId, isReplay) {
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio = null;
-  }
-
-  const url = URL.createObjectURL(blob);
-  currentAudio = new Audio(url);
-  currentAudio.volume = masterVolume;
-  isPlaying = true;
-
-  setAudioState("playing");
-  setReplayPlaying(true);
+  // Usa AudioContext invece di new Audio() — funziona anche con schermo bloccato su Android
+  const ctx = getAudioCtx();
 
   if (!isReplay) {
-    // Mostra testo istruzione nel box (il testo arriva nel successivo tick)
-    // Per ora mostra il cue_id come feedback visivo
     document.getElementById("instrCue").textContent = cueId;
     document.getElementById("instrBox").classList.add("flash");
   }
 
   addLog(isReplay ? "↩ Replay" : `▶ ${cueId}`, "ok");
 
-  currentAudio.onended = () => {
-    isPlaying = false;
-    setAudioState("ready");
-    setReplayPlaying(false);
-    URL.revokeObjectURL(url);
-  };
-
   try {
-    await currentAudio.play();
+    // Decodifica il blob come ArrayBuffer
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+    // Ferma eventuale riproduzione precedente
+    if (currentAudio) {
+      try { currentAudio.stop(); } catch(e) {}
+      currentAudio = null;
+    }
+
+    // Crea source e gain node
+    const source = ctx.createBufferSource();
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = masterVolume;
+
+    source.buffer = audioBuffer;
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    isPlaying = true;
+    setAudioState("playing");
+    setReplayPlaying(true);
+
+    source.onended = () => {
+      isPlaying = false;
+      setAudioState("ready");
+      setReplayPlaying(false);
+      currentAudio = null;
+    };
+
+    source.start(0);
+    currentAudio = source; // salva riferimento per poterlo fermare
+
   } catch(e) {
-    // Autoplay bloccato — richiede interazione utente
-    addLog("Tocca lo schermo per abilitare audio", "warn");
+    addLog("Errore riproduzione: " + e.message, "warn");
     setAudioState("ready");
     setReplayPlaying(false);
   }
@@ -489,7 +503,8 @@ function getAudioCtx() {
 
 function setVolume(val) {
   masterVolume = val / 100;
-  if (currentAudio) currentAudio.volume = masterVolume;
+  // currentAudio è ora un BufferSource — il volume è gestito dal gainNode
+  // aggiornare masterVolume è sufficiente per le prossime riproduzioni
 }
 
 async function playTestTone() {
@@ -505,30 +520,30 @@ async function playTestTone() {
   getAudioCtx(); // sblocca AudioContext
 
   try {
-    const resp = await fetch(`http://${SERVER_HOST}/api/tts/test-audio`);
+    const resp = await fetch(`${HTTP_PROTOCOL}://${SERVER_HOST}/api/tts/test-audio`);
     if (!resp.ok) throw new Error("Server non raggiungibile");
 
     const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.volume = masterVolume;
+    const arrayBuffer = await blob.arrayBuffer();
+    const ctx = getAudioCtx();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
 
-    audio.onended = () => {
+    const source = ctx.createBufferSource();
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = masterVolume;
+    source.buffer = audioBuffer;
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    source.onended = () => {
       result.textContent = "✓ Hai sentito il messaggio? Cuffie ok!";
       result.style.color = "#00E676";
       btn.style.borderColor = "#00E676";
       btn.style.color = "#00E676";
       btn.textContent = "🔊 Riprova Test";
-      URL.revokeObjectURL(url);
     };
 
-    audio.onerror = () => {
-      result.textContent = "Errore riproduzione audio";
-      result.style.color = "#FF1744";
-      btn.textContent = "🔊 Test Cuffie";
-    };
-
-    await audio.play();
+    source.start(0);
     result.textContent = "▶ Riproduzione in corso...";
 
   } catch(e) {
