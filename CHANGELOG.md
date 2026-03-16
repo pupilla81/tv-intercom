@@ -5,6 +5,24 @@ Formato: `[versione] - data - descrizione`
 
 ---
 
+## [0.5.0] - 2026-03-16 — Convertitore Copione
+
+### Aggiunto
+- **Convertitore copione** (`tools/doc_to_script.py`)
+  - Converte testo semplice (da Google Doc, Word, ecc.) in `script.json`
+  - Riconosce automaticamente personaggi, battute, istruzioni camera, atti e scene
+  - Convenzione semplice: `[CAM1: istruzione]` accanto alle battute
+  - Supporto cue manuali con `[MANUALE: descrizione]`
+  - Parametri: `--title`, `--date`, `--location`, `--preview`
+  - Modalità interattiva (`--interactive`) per incollare testo direttamente
+- **Copione di esempio** (`tools/copione_esempio.txt`) — riferimento formato
+
+### Note operative
+- Flusso consigliato: Google Doc → Scarica come .txt → converti → riavvia server
+- Il JSON generato è compatibile direttamente con il server senza modifiche
+
+---
+
 ## [0.4.0] - 2026-03-15 — STT Deepgram Streaming
 
 ### Aggiunto
@@ -122,8 +140,10 @@ Formato: `[versione] - data - descrizione`
 
 ## Prossimi passi pianificati
 
-- [ ] Riduzione latenza STT (utterance_end_ms, chunk size, VPS)
+- [ ] Riduzione latenza STT (utterance_end_ms, VPS)
 - [ ] Dashboard regia completa (pannello cue, stato camere, controlli)
+- [ ] Editor visuale copione nella dashboard
+- [ ] Ricarica copione a caldo senza riavviare il server
 - [ ] Sezione impostazioni (periferica audio, URL server, voce TTS)
 - [ ] Deploy su VPS con istruzioni complete
 - [ ] Test in esterna con SIM dati
