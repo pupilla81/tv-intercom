@@ -210,7 +210,7 @@
         <span id="volLabel" style="font-size:10px; letter-spacing:2px; color:#888">80%</span>
       </div>
       <input type="range" id="volSlider" min="0" max="100" value="80"
-        oninput="document.getElementById('volLabel').textContent=this.value+'%'; setVolume(this.value); updateTestVolume(this.value)"
+        oninput="document.getElementById('volLabel').textContent=this.value+'%'; setVolume(this.value)"
         style="width:100%; accent-color:#00A8FF; cursor:pointer;" />
     </div>
 
@@ -492,14 +492,6 @@ function setVolume(val) {
   if (currentAudio) currentAudio.volume = masterVolume;
 }
 
-let testAudio = null;
-
-function updateTestVolume(val) {
-  if (testAudio && !testAudio.paused) {
-    testAudio.volume = val / 100;
-  }
-}
-
 async function playTestTone() {
   const btn = document.getElementById("testBtn");
   const result = document.getElementById("testResult");
@@ -518,8 +510,7 @@ async function playTestTone() {
 
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
-    testAudio = new Audio(url);
-    const audio = testAudio;
+    const audio = new Audio(url);
     audio.volume = masterVolume;
 
     audio.onended = () => {
@@ -555,6 +546,80 @@ function unlockAudio() {
   document.getElementById("audioUnlock").style.display = "none";
   addLog("Audio abilitato — volume: " + Math.round(masterVolume * 100) + "%", "ok");
   connect();
+  startWakeLock();
+  startHeartbeat();
+  startSilentAudioLoop();
+}
+
+// ---------------------------------------------------------------------------
+// Wake Lock — impedisce al sistema di bloccare lo schermo
+// ---------------------------------------------------------------------------
+let wakeLock = null;
+
+async function startWakeLock() {
+  if (!('wakeLock' in navigator)) {
+    addLog("Wake Lock non supportato su questo browser", "warn");
+    return;
+  }
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    addLog("Wake Lock attivo — schermo sempre acceso", "ok");
+    wakeLock.addEventListener('release', () => {
+      addLog("Wake Lock rilasciato", "warn");
+    });
+    // Richiedi di nuovo se la pagina torna in foreground
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState === 'visible' && wakeLock !== null) {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+          addLog("Wake Lock riattivato", "ok");
+        } catch(e) {}
+      }
+    });
+  } catch(e) {
+    addLog("Wake Lock non disponibile: " + e.message, "warn");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Heartbeat WebSocket — mantiene la connessione viva
+// ---------------------------------------------------------------------------
+let heartbeatInterval = null;
+
+function startHeartbeat() {
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  heartbeatInterval = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ping" }));
+    } else if (ws && ws.readyState === WebSocket.CLOSED) {
+      // Riconnessione aggressiva
+      addLog("Connessione persa — riconnessione...", "warn");
+      connect();
+    }
+  }, 15000); // ogni 15 secondi
+}
+
+// ---------------------------------------------------------------------------
+// Silent audio loop — mantiene AudioContext vivo con schermo bloccato
+// ---------------------------------------------------------------------------
+let silentLoopInterval = null;
+
+function startSilentAudioLoop() {
+  if (silentLoopInterval) clearInterval(silentLoopInterval);
+  silentLoopInterval = setInterval(() => {
+    try {
+      const ctx = getAudioCtx();
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+      // Genera un buffer silenzioso di 0.1s per mantenere l'AudioContext attivo
+      const buffer = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start();
+    } catch(e) {}
+  }, 30000); // ogni 30 secondi
 }
 
 // Imposta volume su ogni audio riprodotto

@@ -5,6 +5,24 @@ Formato: `[versione] - data - descrizione`
 
 ---
 
+## [0.6.0] - 2026-03-16 — Deploy VPS
+
+### Aggiunto
+- **Deploy su Hetzner CCX13** (2 CPU AMD, 8GB RAM, IP: 46.225.227.204)
+- **Servizio systemd** — avvio automatico al boot, restart automatico in caso di crash
+- Dashboard URL dinamici — funziona sia su localhost che su IP/dominio reale
+- Endpoint `/api/stt/start` e `/api/stt/stop` per controllo STT dalla dashboard
+- Tasto **FERMA STT** nella dashboard con aggiornamento stato in tempo reale
+
+### Comandi utili VPS
+```bash
+systemctl restart tv-intercom   # riavvia dopo git pull
+journalctl -u tv-intercom -f    # log in tempo reale
+git pull && systemctl restart tv-intercom  # aggiorna e riavvia
+```
+
+---
+
 ## [0.5.0] - 2026-03-16 — Convertitore Copione
 
 ### Aggiunto

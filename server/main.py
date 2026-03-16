@@ -450,7 +450,10 @@ async def ws_camera(websocket: WebSocket, camera_id: int):
             data = await websocket.receive_text()
             msg = json.loads(data)
 
-            if msg.get("type") == "replay":
+            if msg.get("type") == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+
+            elif msg.get("type") == "replay":
                 audio = state.last_audio.get(camera_id)
                 last = state.last_text.get(camera_id)
                 if audio:
