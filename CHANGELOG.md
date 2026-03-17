@@ -5,6 +5,33 @@ Formato: `[versione] - data - descrizione`
 
 ---
 
+## [0.7.0] - 2026-03-18 — PWA Audio Background + HTTPS
+
+### Risolto
+- **Problema critico audio con schermo bloccato** — causa: il base64 dell'audio silenzioso era troncato e non valido. Android non lo riconosceva come stream audio attivo e sospendeva tutto.
+- **Soluzione:** file `silent.mp3` reale generato con FFmpeg sul VPS (10s di silenzio, ~9KB), servito da `/operator/silent.mp3` e caricato in cache dal Service Worker.
+
+### Come funziona ora (approccio Spotify)
+- `<audio>` HTML con `silent.mp3` in loop → Android/iOS lo riconoscono come media player nativo
+- MediaSession API collegata all'audio attivo → sistema operativo non sospende mai
+- Wake Lock API → schermo sempre acceso durante il servizio
+- Visibility change → riconnessione automatica + replay messaggio perso al ritorno in foreground
+- Service Worker → cache offline, aggiornamenti automatici
+
+### Aggiunto
+- **HTTPS** con DuckDNS + Let's Encrypt (`https://tvintercom.duckdns.org`)
+- Certificato SSL gratuito, rinnovo automatico ogni 90 giorni
+- WebSocket ora usa `wss://` — connessioni cifrate
+- URL dinamici nella dashboard e PWA (http/https, ws/wss automatici)
+- `silent.mp3` generato con FFmpeg sul VPS
+
+### Note operative
+- La PWA installata dalla schermata Home ha più privilegi del browser — usare sempre l'icona
+- Il file `silent.mp3` viene scaricato una volta sola e messo in cache
+- Il play parte obbligatoriamente dal click su "Entra in servizio" (requisito browser)
+
+---
+
 ## [0.6.0] - 2026-03-16 — Deploy VPS
 
 ### Aggiunto
@@ -158,12 +185,9 @@ git pull && systemctl restart tv-intercom  # aggiorna e riavvia
 
 ## Prossimi passi pianificati
 
-- [ ] Riduzione latenza STT (utterance_end_ms, VPS)
-- [ ] Dashboard regia completa (pannello cue, stato camere, controlli)
+- [ ] Discord Bot — layer audio nativo come alternativa/backup alla PWA
+- [ ] Dashboard regia completa con pannello cue e controlli
 - [ ] Editor visuale copione nella dashboard
-- [ ] Ricarica copione a caldo senza riavviare il server
-- [ ] Sezione impostazioni (periferica audio, URL server, voce TTS)
-- [ ] Deploy su VPS con istruzioni complete
-- [ ] Test in esterna con SIM dati
-- [ ] App desktop Electron per la regia
-- [ ] Integrazione Discord PTT
+- [ ] App nativa Android (Capacitor) per massima affidabilità
+- [ ] Test iOS con TestFlight
+- [ ] Deploy definitivo con dominio personalizzato
