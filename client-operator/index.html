@@ -10,235 +10,88 @@
   <link rel="manifest" href="manifest.json" />
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-
     :root {
-      --bg: #0a0a0a;
-      --surface: #141414;
-      --border: #222;
-      --text: #e0e0e0;
-      --muted: #555;
-      --accent: #00A8FF;
-      --green: #00E676;
-      --red: #FF1744;
-      --orange: #FF6B00;
+      --bg: #0a0a0a; --surface: #141414; --border: #222;
+      --text: #e0e0e0; --muted: #555; --accent: #00A8FF;
+      --green: #00E676; --red: #FF1744; --orange: #FF6B00;
     }
-
     body {
-      background: var(--bg);
-      color: var(--text);
+      background: var(--bg); color: var(--text);
       font-family: 'Courier New', monospace;
-      min-height: 100dvh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: space-between;
-      padding: 24px 20px 40px;
-      gap: 20px;
+      min-height: 100dvh; display: flex; flex-direction: column;
+      align-items: center; justify-content: space-between;
+      padding: 24px 20px 40px; gap: 20px;
     }
-
-    /* Header */
-    .header {
-      text-align: center;
-      width: 100%;
-    }
-    .cam-label {
-      font-size: 11px;
-      letter-spacing: 5px;
-      color: var(--muted);
-      text-transform: uppercase;
-      margin-bottom: 4px;
-    }
-    .cam-number {
-      font-size: 52px;
-      font-weight: bold;
-      letter-spacing: 2px;
-      line-height: 1;
-    }
+    .header { text-align: center; width: 100%; }
+    .cam-label { font-size: 11px; letter-spacing: 5px; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
+    .cam-number { font-size: 52px; font-weight: bold; letter-spacing: 2px; line-height: 1; }
     .cam-number.connected { color: var(--accent); }
     .cam-number.disconnected { color: var(--muted); }
-
-    /* Status bar */
-    .status-bar {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      flex-wrap: wrap;
-      width: 100%;
-    }
-    .badge {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 5px 12px;
-      font-size: 11px;
-      letter-spacing: 1px;
-    }
-    .dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-    }
+    .status-bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; width: 100%; }
+    .badge { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 5px 12px; font-size: 11px; letter-spacing: 1px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; }
     .dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
     .dot.red { background: var(--red); }
     .dot.orange { background: var(--orange); animation: pulse 1s infinite; }
-
-    /* Last instruction display */
-    .instruction-box {
-      width: 100%;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      min-height: 100px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .instruction-label {
-      font-size: 10px;
-      letter-spacing: 3px;
-      color: var(--muted);
-    }
-    .instruction-text {
-      font-size: 18px;
-      color: var(--text);
-      line-height: 1.5;
-    }
+    .instruction-box { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; min-height: 100px; display: flex; flex-direction: column; gap: 8px; }
+    .instruction-label { font-size: 10px; letter-spacing: 3px; color: var(--muted); }
+    .instruction-text { font-size: 18px; color: var(--text); line-height: 1.5; }
     .instruction-text.empty { color: var(--muted); font-size: 14px; }
-    .instruction-cue {
-      font-size: 10px;
-      color: var(--muted);
-      letter-spacing: 1px;
-      margin-top: 4px;
-    }
-
-    /* Replay button — grande, centrale */
-    .replay-btn {
-      width: 100%;
-      max-width: 340px;
-      height: 120px;
-      background: var(--surface);
-      border: 2px solid var(--border);
-      border-radius: 16px;
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      transition: all 0.1s;
-      -webkit-touch-callout: none;
-    }
-    .replay-btn:active, .replay-btn.playing {
-      background: #00A8FF11;
-      border-color: var(--accent);
-      transform: scale(0.97);
-    }
+    .instruction-cue { font-size: 10px; color: var(--muted); letter-spacing: 1px; margin-top: 4px; }
+    .replay-btn { width: 100%; max-width: 340px; height: 120px; background: var(--surface); border: 2px solid var(--border); border-radius: 16px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; transition: all 0.1s; -webkit-touch-callout: none; }
+    .replay-btn:active, .replay-btn.playing { background: #00A8FF11; border-color: var(--accent); transform: scale(0.97); }
     .replay-btn.playing { border-color: var(--orange); }
     .replay-icon { font-size: 36px; }
-    .replay-label {
-      font-size: 11px;
-      letter-spacing: 4px;
-      color: var(--muted);
-      text-transform: uppercase;
-    }
+    .replay-label { font-size: 11px; letter-spacing: 4px; color: var(--muted); text-transform: uppercase; }
     .replay-btn.playing .replay-label { color: var(--orange); }
-
-    /* Log messaggi */
-    .log-box {
-      width: 100%;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    .log-header {
-      padding: 6px 14px;
-      font-size: 10px;
-      letter-spacing: 3px;
-      color: var(--muted);
-      border-bottom: 1px solid var(--border);
-    }
-    .log-entries {
-      height: 80px;
-      overflow-y: auto;
-      padding: 8px 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
-    .log-entry {
-      display: flex;
-      gap: 10px;
-      font-size: 11px;
-    }
+    .log-box { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .log-header { padding: 6px 14px; font-size: 10px; letter-spacing: 3px; color: var(--muted); border-bottom: 1px solid var(--border); }
+    .log-entries { height: 80px; overflow-y: auto; padding: 8px 14px; display: flex; flex-direction: column; gap: 3px; }
+    .log-entry { display: flex; gap: 10px; font-size: 11px; }
     .log-time { color: var(--muted); min-width: 72px; }
     .log-msg { color: var(--text); }
     .log-msg.ok { color: var(--green); }
     .log-msg.warn { color: var(--orange); }
     .log-msg.err { color: var(--red); }
-
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-    @keyframes flash {
-      0% { border-color: var(--orange); background: #FF6B0022; }
-      100% { border-color: var(--border); background: var(--surface); }
-    }
+    @keyframes flash { 0% { border-color: var(--orange); background: #FF6B0022; } 100% { border-color: var(--border); background: var(--surface); } }
     .flash { animation: flash 1.5s ease-out forwards; }
   </style>
 </head>
 <body>
 
-  <!-- Overlay sblocco audio e test -->
-  <div id="audioUnlock" style="
-    position:fixed; inset:0; z-index:999;
-    background:#0a0a0a;
-    display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:16px;
-    padding: 30px 24px;
-  ">
-    <div style="font-size:44px">🎙</div>
-    <div style="font-size:13px; letter-spacing:4px; color:#888; text-transform:uppercase">TV Intercom</div>
-    <div id="camLabelUnlock" style="font-size:11px; letter-spacing:3px; color:#555; margin-top:-8px"></div>
+  <!--
+    ELEMENTO AUDIO NASCOSTO — cuore del sistema Spotify approach.
+    Un <audio> HTML in loop con 1 secondo di silenzio codificato in base64.
+    Android e iOS lo riconoscono come media player attivo — esattamente
+    come Spotify — mantenendo vivi rete, AudioContext e schermo anche
+    con lo schermo bloccato. Nessuna richiesta di rete: il silenzio
+    è codificato direttamente nell'attributo src.
+  -->
+  <audio id="silentAudio" loop preload="auto" style="display:none"
+    src="data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsgU291bmQgRWZmZWN0cyBMaWJyYXJ5AABT"></audio>
 
-    <!-- Volume slider -->
-    <div style="width:100%; max-width:280px; margin-top:8px;">
-      <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-        <span style="font-size:10px; letter-spacing:2px; color:#555">VOLUME</span>
-        <span id="volLabel" style="font-size:10px; letter-spacing:2px; color:#888">80%</span>
+  <!-- Overlay sblocco audio e test -->
+  <div id="audioUnlock" style="position:fixed;inset:0;z-index:999;background:#0a0a0a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:30px 24px;">
+    <div style="font-size:44px">🎙</div>
+    <div style="font-size:13px;letter-spacing:4px;color:#888;text-transform:uppercase">TV Intercom</div>
+    <div id="camLabelUnlock" style="font-size:11px;letter-spacing:3px;color:#555;margin-top:-8px"></div>
+
+    <div style="width:100%;max-width:280px;margin-top:8px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+        <span style="font-size:10px;letter-spacing:2px;color:#555">VOLUME</span>
+        <span id="volLabel" style="font-size:10px;letter-spacing:2px;color:#888">80%</span>
       </div>
       <input type="range" id="volSlider" min="0" max="100" value="80"
-        oninput="document.getElementById('volLabel').textContent=this.value+'%'; setVolume(this.value)"
-        style="width:100%; accent-color:#00A8FF; cursor:pointer;" />
+        oninput="document.getElementById('volLabel').textContent=this.value+'%'; setVolume(this.value); updateTestVolume(this.value)"
+        style="width:100%;accent-color:#00A8FF;cursor:pointer;" />
     </div>
 
-    <!-- Test audio -->
-    <button onclick="playTestTone()" id="testBtn" style="
-      width:100%; max-width:280px;
-      background:#141414; border:1px solid #333; border-radius:8px;
-      padding:14px; cursor:pointer;
-      font-size:11px; font-family:monospace;
-      letter-spacing:3px; color:#888;
-      text-transform:uppercase;
-    ">🔊 Test Cuffie</button>
+    <button onclick="playTestTone()" id="testBtn" style="width:100%;max-width:280px;background:#141414;border:1px solid #333;border-radius:8px;padding:14px;cursor:pointer;font-size:11px;font-family:monospace;letter-spacing:3px;color:#888;text-transform:uppercase;">🔊 Test Cuffie</button>
+    <div id="testResult" style="font-size:11px;letter-spacing:2px;color:#555;min-height:16px;"></div>
 
-    <div id="testResult" style="font-size:11px; letter-spacing:2px; color:#555; min-height:16px;"></div>
-
-    <!-- Attiva -->
-    <button onclick="unlockAudio()" style="
-      width:100%; max-width:280px;
-      background:#00A8FF; border:none; border-radius:12px;
-      padding:18px; cursor:pointer;
-      font-size:13px; font-family:monospace;
-      letter-spacing:3px; color:#fff; font-weight:bold;
-      text-transform:uppercase; margin-top:8px;
-    ">Entra in servizio</button>
-
-    <div style="font-size:10px; color:#333; letter-spacing:2px; text-align:center">
-      Esegui il test cuffie prima di entrare in servizio
-    </div>
+    <button onclick="unlockAudio()" style="width:100%;max-width:280px;background:#00A8FF;border:none;border-radius:12px;padding:18px;cursor:pointer;font-size:13px;font-family:monospace;letter-spacing:3px;color:#fff;font-weight:bold;text-transform:uppercase;margin-top:8px;">Entra in servizio</button>
+    <div style="font-size:10px;color:#333;letter-spacing:2px;text-align:center">Esegui il test cuffie prima di entrare in servizio</div>
   </div>
 
   <div class="header">
@@ -277,27 +130,30 @@
 
 <script>
 // ---------------------------------------------------------------------------
-// Configurazione
+// Config
 // ---------------------------------------------------------------------------
-const params = new URLSearchParams(window.location.search);
-const CAMERA_ID = parseInt(params.get("cam") || "1");
-const SERVER_HOST = params.get("host") || window.location.host;
-const WS_PROTOCOL = window.location.protocol === "https:" ? "wss" : "ws";
+const params       = new URLSearchParams(window.location.search);
+const CAMERA_ID    = parseInt(params.get("cam") || "1");
+const SERVER_HOST  = params.get("host") || window.location.host;
+const WS_PROTOCOL  = window.location.protocol === "https:" ? "wss" : "ws";
 const HTTP_PROTOCOL = window.location.protocol === "https:" ? "https" : "http";
-const WS_URL = `${WS_PROTOCOL}://${SERVER_HOST}/ws/camera/${CAMERA_ID}`;
+const WS_URL       = `${WS_PROTOCOL}://${SERVER_HOST}/ws/camera/${CAMERA_ID}`;
 
 document.getElementById("camNumber").textContent = CAMERA_ID;
-document.getElementById("camNumber").classList.remove("disconnected");
-document.getElementById("camNumber").classList.add("connected");
+document.getElementById("camNumber").classList.replace("disconnected", "connected");
+document.getElementById("camLabelUnlock").textContent = "CAMERA " + CAMERA_ID;
 
 // ---------------------------------------------------------------------------
 // Stato
 // ---------------------------------------------------------------------------
-let ws = null;
+let ws             = null;
 let reconnectTimer = null;
-let lastAudioBlob = null;
-let currentAudio = null;
-let isPlaying = false;
+let heartbeatTimer = null;
+let wakeLock       = null;
+let lastAudioBlob  = null;
+let masterVolume   = 0.8;
+let testAudio      = null;
+let audioUnlocked  = false;
 
 // ---------------------------------------------------------------------------
 // Log
@@ -310,38 +166,169 @@ function addLog(msg, type = "") {
   entry.innerHTML = `<span class="log-time">${now}</span><span class="log-msg ${type}">${msg}</span>`;
   container.appendChild(entry);
   container.scrollTop = container.scrollHeight;
-  // Mantieni max 30 righe
   while (container.children.length > 30) container.removeChild(container.firstChild);
+}
+
+// ---------------------------------------------------------------------------
+// Volume
+// ---------------------------------------------------------------------------
+function setVolume(val) { masterVolume = val / 100; }
+function updateTestVolume(val) {
+  if (testAudio && !testAudio.paused) testAudio.volume = val / 100;
+}
+
+// ---------------------------------------------------------------------------
+// [1] SILENT AUDIO ELEMENT — Spotify Approach
+//     L'elemento <audio> con loop attivo è riconosciuto da Android e iOS
+//     come media player nativo → il sistema non sospende rete né audio
+//     anche con schermo bloccato. Deve partire da un'interazione utente.
+// ---------------------------------------------------------------------------
+function startSilentAudio() {
+  const el = document.getElementById("silentAudio");
+  el.volume = 0.001;
+  el.play()
+    .then(() => addLog("Stream silenzioso attivo — modalità Spotify", "ok"))
+    .catch(e => addLog("Silent audio: " + e.message, "warn"));
+}
+
+// ---------------------------------------------------------------------------
+// [2] MEDIA SESSION API
+//     Dichiara l'app come media player al sistema operativo.
+//     IMPORTANTE: funziona solo se c'è un <audio> attivo (quello silenzioso).
+//     Senza audio attivo, Android ignora la MediaSession.
+// ---------------------------------------------------------------------------
+function setupMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title:  `TV Intercom — CAM ${CAMERA_ID}`,
+      artist: 'In servizio',
+      album:  'TV Intercom',
+    });
+    navigator.mediaSession.playbackState = 'playing';
+
+    // Handlers obbligatori — senza questi la sessione viene abbandonata
+    navigator.mediaSession.setActionHandler('play', () => {
+      document.getElementById("silentAudio").play();
+      navigator.mediaSession.playbackState = 'playing';
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      // Non permettiamo la pausa — riavviamo subito
+      document.getElementById("silentAudio").play();
+      navigator.mediaSession.playbackState = 'playing';
+    });
+    navigator.mediaSession.setActionHandler('stop', () => {});
+
+    addLog("MediaSession: registrato come media player", "ok");
+  } catch(e) {
+    addLog("MediaSession non disponibile", "warn");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// [3] SCREEN WAKE LOCK API
+//     Impedisce al sistema di spegnere lo schermo e sospendere la rete.
+//     Richiede HTTPS. Si rilascia automaticamente se la pagina va
+//     in background, per questo lo richiediamo di nuovo al ritorno.
+// ---------------------------------------------------------------------------
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) {
+    addLog("Wake Lock non supportato", "warn");
+    return;
+  }
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    addLog("Wake Lock attivo — schermo sempre acceso", "ok");
+    wakeLock.addEventListener('release', () => {
+      addLog("Wake Lock rilasciato dal sistema", "warn");
+    });
+  } catch(e) {
+    addLog("Wake Lock: " + e.message, "warn");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// [4] VISIBILITY CHANGE
+//     Quando la pagina torna in foreground (sblocco schermo, cambio app)
+//     ripristina tutto: audio silenzioso, MediaSession, WakeLock, WebSocket.
+// ---------------------------------------------------------------------------
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible') {
+    addLog("Pagina in foreground — ripristino...", "");
+
+    // Riavvia silent audio se sospeso
+    const silentEl = document.getElementById("silentAudio");
+    if (audioUnlocked && silentEl.paused) {
+      silentEl.play().catch(() => {});
+    }
+
+    // Aggiorna playbackState MediaSession
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'playing';
+    }
+
+    // Richiedi Wake Lock se rilasciato
+    if (!wakeLock || wakeLock.released) {
+      await requestWakeLock();
+    }
+
+    // Riconnetti WebSocket se caduto
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      addLog("Riconnessione dopo sblocco schermo...", "warn");
+      connect();
+      // Dopo la connessione chiedi replay dell'ultimo messaggio perso
+      setTimeout(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "replay" }));
+          addLog("Richiesto replay messaggio perso", "info");
+        }
+      }, 1500);
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Heartbeat — ping ogni 10s per mantenere vivo il WebSocket
+// ---------------------------------------------------------------------------
+function startHeartbeat() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ping" }));
+    } else {
+      clearInterval(heartbeatTimer);
+      connect();
+    }
+  }, 10000);
 }
 
 // ---------------------------------------------------------------------------
 // WebSocket
 // ---------------------------------------------------------------------------
 function connect() {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   addLog("Connessione al server...", "warn");
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
     setConnected(true);
     addLog(`Connesso — CAM ${CAMERA_ID}`, "ok");
-    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    startHeartbeat();
   };
 
   ws.onclose = () => {
     setConnected(false);
-    addLog("Connessione persa. Riconnessione...", "err");
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    addLog("Connessione persa — riconnessione in 3s...", "err");
     reconnectTimer = setTimeout(connect, 3000);
   };
 
-  ws.onerror = () => {
-    addLog("Errore WebSocket", "err");
-  };
+  ws.onerror = () => addLog("Errore WebSocket", "err");
 
   let pendingHeader = null;
 
   ws.onmessage = (event) => {
     if (typeof event.data === "string") {
-      // Messaggio JSON — header di un'istruzione o evento
       const msg = JSON.parse(event.data);
 
       if (msg.type === "instruction") {
@@ -350,7 +337,6 @@ function connect() {
         if (msg.text) {
           updateInstruction(msg.text, msg.cue_id);
           document.getElementById("instrBox").classList.add("flash");
-          addLog(`▶ ${msg.cue_id}`, "ok");
         }
       } else if (msg.type === "replay") {
         pendingHeader = msg;
@@ -362,381 +348,158 @@ function connect() {
         document.getElementById("instrBox").classList.add("flash");
         addLog(`▶ ${msg.cue_id}`, "ok");
       }
+      // pong — nessuna azione
 
     } else if (event.data instanceof Blob) {
-      // Bytes audio in arrivo
       lastAudioBlob = event.data;
       if (pendingHeader) {
-        const cue = pendingHeader.cue_id || "";
-        const type = pendingHeader.type;
-        pendingHeader = null;
-        playAudio(lastAudioBlob, cue, type === "replay");
+        const cueId   = pendingHeader.cue_id || "";
+        const isReplay = pendingHeader.type === "replay";
+        pendingHeader  = null;
+        playAudio(lastAudioBlob, cueId, isReplay);
       }
     }
   };
 }
 
 // ---------------------------------------------------------------------------
-// Audio
+// Riproduzione audio
 // ---------------------------------------------------------------------------
 async function playAudio(blob, cueId, isReplay) {
-  // Usa AudioContext invece di new Audio() — funziona anche con schermo bloccato su Android
-  const ctx = getAudioCtx();
+  setAudioState("playing");
+  setReplayPlaying(true);
 
   if (!isReplay) {
     document.getElementById("instrCue").textContent = cueId;
     document.getElementById("instrBox").classList.add("flash");
   }
-
   addLog(isReplay ? "↩ Replay" : `▶ ${cueId}`, "ok");
 
+  // Usa Web Audio API — decodifica MP3 e riproduce via AudioContext
+  // che rimane attivo grazie al silent audio loop
   try {
-    // Decodifica il blob come ArrayBuffer
     const arrayBuffer = await blob.arrayBuffer();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-
-    // Ferma eventuale riproduzione precedente
-    if (currentAudio) {
-      try { currentAudio.stop(); } catch(e) {}
-      currentAudio = null;
-    }
-
-    // Crea source e gain node
-    const source = ctx.createBufferSource();
-    const gainNode = ctx.createGain();
-    gainNode.gain.value = masterVolume;
-
-    source.buffer = audioBuffer;
-    source.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    isPlaying = true;
-    setAudioState("playing");
-    setReplayPlaying(true);
-
-    source.onended = () => {
-      isPlaying = false;
-      setAudioState("ready");
-      setReplayPlaying(false);
-      currentAudio = null;
-    };
-
-    source.start(0);
-    currentAudio = source; // salva riferimento per poterlo fermare
-
+    const Ctx  = window.AudioContext || window.webkitAudioContext;
+    const ctx  = new Ctx();
+    await ctx.resume();
+    const buf  = await ctx.decodeAudioData(arrayBuffer);
+    const src  = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    gain.gain.value = masterVolume;
+    src.buffer = buf;
+    src.connect(gain);
+    gain.connect(ctx.destination);
+    src.onended = () => { setAudioState("ready"); setReplayPlaying(false); ctx.close(); };
+    src.start(0);
   } catch(e) {
-    addLog("Errore riproduzione: " + e.message, "warn");
-    setAudioState("ready");
-    setReplayPlaying(false);
+    // Fallback HTML Audio
+    const url   = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.volume = masterVolume;
+    audio.onended = () => { setAudioState("ready"); setReplayPlaying(false); URL.revokeObjectURL(url); };
+    audio.play().catch(err => { addLog("Errore: " + err.message, "err"); setAudioState("ready"); setReplayPlaying(false); });
   }
 }
 
 function requestReplay() {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    addLog("Non connesso", "err");
-    return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) { addLog("Non connesso", "err"); return; }
+  if (lastAudioBlob) { playAudio(lastAudioBlob, "", true); }
+  else { ws.send(JSON.stringify({ type: "replay" })); }
+}
+
+// ---------------------------------------------------------------------------
+// Test cuffie
+// ---------------------------------------------------------------------------
+async function playTestTone() {
+  const btn = document.getElementById("testBtn");
+  const result = document.getElementById("testResult");
+  btn.style.borderColor = "#00A8FF"; btn.style.color = "#00A8FF";
+  btn.textContent = "⏳ Caricamento...";
+  result.textContent = "Richiesta audio al server..."; result.style.color = "#00A8FF";
+  try {
+    const resp = await fetch(`${HTTP_PROTOCOL}://${SERVER_HOST}/api/tts/test-audio`);
+    if (!resp.ok) throw new Error("Server non raggiungibile");
+    const blob = await resp.blob();
+    const url  = URL.createObjectURL(blob);
+    testAudio  = new Audio(url);
+    testAudio.volume = masterVolume;
+    testAudio.onended = () => {
+      result.textContent = "✓ Hai sentito il messaggio? Cuffie ok!";
+      result.style.color = "#00E676"; btn.style.borderColor = "#00E676";
+      btn.style.color = "#00E676"; btn.textContent = "🔊 Riprova Test";
+      URL.revokeObjectURL(url);
+    };
+    await testAudio.play();
+    result.textContent = "▶ Riproduzione in corso...";
+  } catch(e) {
+    result.textContent = "Errore: " + e.message; result.style.color = "#FF1744";
+    btn.style.borderColor = "#333"; btn.style.color = "#888"; btn.textContent = "🔊 Test Cuffie";
   }
-  // Prima prova replay locale (più veloce)
-  if (lastAudioBlob) {
-    playAudio(lastAudioBlob, "", true);
-  } else {
-    // Chiedi al server
-    ws.send(JSON.stringify({ type: "replay" }));
-  }
+}
+
+// ---------------------------------------------------------------------------
+// UNLOCK — avvia tutto dalla prima interazione utente (obbligatoria)
+// ---------------------------------------------------------------------------
+async function unlockAudio() {
+  audioUnlocked = true;
+  document.getElementById("audioUnlock").style.display = "none";
+  addLog("Entrato in servizio", "ok");
+
+  // Ordine importante:
+  // 1. Silent audio (deve partire da click utente)
+  startSilentAudio();
+  // 2. MediaSession (richiede audio attivo)
+  setupMediaSession();
+  // 3. Wake Lock
+  await requestWakeLock();
+  // 4. Connessione server
+  connect();
 }
 
 // ---------------------------------------------------------------------------
 // UI helpers
 // ---------------------------------------------------------------------------
-function setConnected(connected) {
-  const dot = document.getElementById("connDot");
-  const label = document.getElementById("connLabel");
-  dot.className = "dot " + (connected ? "green" : "red");
-  label.textContent = connected ? "CONNESSO" : "DISCONNESSO";
+function setConnected(c) {
+  document.getElementById("connDot").className    = "dot " + (c ? "green" : "red");
+  document.getElementById("connLabel").textContent = c ? "CONNESSO" : "DISCONNESSO";
 }
-
-function setAudioState(state) {
-  const dot = document.getElementById("audioDot");
-  const label = document.getElementById("audioLabel");
-  if (state === "receiving") {
-    dot.className = "dot orange";
-    label.textContent = "RICEZIONE";
-  } else if (state === "playing") {
-    dot.className = "dot green";
-    label.textContent = "IN RIPRODUZIONE";
-  } else {
-    dot.style.background = "#444";
-    dot.className = "dot";
-    label.textContent = "AUDIO PRONTO";
-  }
+function setAudioState(s) {
+  const dot = document.getElementById("audioDot"), label = document.getElementById("audioLabel");
+  if (s === "receiving") { dot.className = "dot orange"; label.textContent = "RICEZIONE"; }
+  else if (s === "playing") { dot.className = "dot green"; label.textContent = "IN RIPRODUZIONE"; }
+  else { dot.style.background = "#444"; dot.className = "dot"; label.textContent = "AUDIO PRONTO"; }
 }
-
-function setReplayPlaying(playing) {
-  document.getElementById("replayBtn").classList.toggle("playing", playing);
-}
-
-// Aggiorna testo istruzione quando arriva via WS (futuro: il server
-// può mandare anche il testo dell'istruzione nell'header)
+function setReplayPlaying(p) { document.getElementById("replayBtn").classList.toggle("playing", p); }
 function updateInstruction(text, cueId) {
   const el = document.getElementById("instrText");
-  el.textContent = text;
-  el.classList.remove("empty");
+  el.textContent = text; el.classList.remove("empty");
   document.getElementById("instrCue").textContent = cueId;
 }
 
 // ---------------------------------------------------------------------------
-// Avvio
-// ---------------------------------------------------------------------------
-// Mostra numero camera nell'overlay
-document.getElementById("camLabelUnlock").textContent = "CAMERA " + CAMERA_ID;
-let audioUnlocked = false;
-let masterVolume = 0.8;
-let audioCtx = null;
-
-function getAudioCtx() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  audioCtx.resume();
-  return audioCtx;
-}
-
-function setVolume(val) {
-  masterVolume = val / 100;
-  // currentAudio è ora un BufferSource — il volume è gestito dal gainNode
-  // aggiornare masterVolume è sufficiente per le prossime riproduzioni
-}
-
-async function playTestTone() {
-  const btn = document.getElementById("testBtn");
-  const result = document.getElementById("testResult");
-
-  btn.style.borderColor = "#00A8FF";
-  btn.style.color = "#00A8FF";
-  btn.textContent = "⏳ Caricamento...";
-  result.textContent = "Richiesta audio al server...";
-  result.style.color = "#00A8FF";
-
-  getAudioCtx(); // sblocca AudioContext
-
-  try {
-    const resp = await fetch(`${HTTP_PROTOCOL}://${SERVER_HOST}/api/tts/test-audio`);
-    if (!resp.ok) throw new Error("Server non raggiungibile");
-
-    const blob = await resp.blob();
-    const arrayBuffer = await blob.arrayBuffer();
-    const ctx = getAudioCtx();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-
-    const source = ctx.createBufferSource();
-    const gainNode = ctx.createGain();
-    gainNode.gain.value = masterVolume;
-    source.buffer = audioBuffer;
-    source.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    source.onended = () => {
-      result.textContent = "✓ Hai sentito il messaggio? Cuffie ok!";
-      result.style.color = "#00E676";
-      btn.style.borderColor = "#00E676";
-      btn.style.color = "#00E676";
-      btn.textContent = "🔊 Riprova Test";
-    };
-
-    source.start(0);
-    result.textContent = "▶ Riproduzione in corso...";
-
-  } catch(e) {
-    result.textContent = "Errore: " + e.message;
-    result.style.color = "#FF1744";
-    btn.style.borderColor = "#333";
-    btn.style.color = "#888";
-    btn.textContent = "🔊 Test Cuffie";
-  }
-}
-
-function unlockAudio() {
-  getAudioCtx();
-  audioUnlocked = true;
-  document.getElementById("audioUnlock").style.display = "none";
-  addLog("Audio abilitato — volume: " + Math.round(masterVolume * 100) + "%", "ok");
-  connect();
-  startWakeLock();
-  startHeartbeat();
-  startSilentAudioLoop();
-  setupMediaSession();
-}
-
-// ---------------------------------------------------------------------------
-// Wake Lock — impedisce al sistema di bloccare lo schermo
-// ---------------------------------------------------------------------------
-let wakeLock = null;
-
-async function startWakeLock() {
-  if (!('wakeLock' in navigator)) {
-    addLog("Wake Lock non supportato su questo browser", "warn");
-    return;
-  }
-  try {
-    wakeLock = await navigator.wakeLock.request('screen');
-    addLog("Wake Lock attivo — schermo sempre acceso", "ok");
-    wakeLock.addEventListener('release', () => {
-      addLog("Wake Lock rilasciato", "warn");
-    });
-    // Richiedi di nuovo se la pagina torna in foreground
-    document.addEventListener('visibilitychange', async () => {
-      if (document.visibilityState === 'visible' && wakeLock !== null) {
-        try {
-          wakeLock = await navigator.wakeLock.request('screen');
-          addLog("Wake Lock riattivato", "ok");
-        } catch(e) {}
-      }
-    });
-  } catch(e) {
-    addLog("Wake Lock non disponibile: " + e.message, "warn");
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Heartbeat WebSocket — mantiene la connessione viva
-// ---------------------------------------------------------------------------
-let heartbeatInterval = null;
-
-function startHeartbeat() {
-  if (heartbeatInterval) clearInterval(heartbeatInterval);
-  heartbeatInterval = setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "ping" }));
-    } else if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
-      addLog("Connessione persa — riconnessione...", "warn");
-      connect();
-    }
-  }, 5000); // controlla ogni 5 secondi invece di 15
-}
-
-// ---------------------------------------------------------------------------
-// Visibility change — riconnette immediatamente quando lo schermo si sblocca
-// ---------------------------------------------------------------------------
-document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible') {
-    addLog("Schermo sbloccato — verifica connessione...", "");
-
-    // Riprendi AudioContext se sospeso
-    if (audioCtx && audioCtx.state === 'suspended') {
-      await audioCtx.resume();
-      addLog("AudioContext ripreso", "ok");
-    }
-
-    // Riconnetti WebSocket se disconnesso
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      addLog("Riconnessione in corso...", "warn");
-      connect();
-      // Dopo la riconnessione chiedi l'ultimo messaggio perso
-      setTimeout(() => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "replay" }));
-          addLog("Richiesto replay ultimo messaggio", "info");
-        }
-      }, 1500);
-    }
-
-    // Riattiva Wake Lock
-    if ('wakeLock' in navigator) {
-      try {
-        wakeLock = await navigator.wakeLock.request('screen');
-      } catch(e) {}
-    }
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Stream audio silenzioso continuo — mantiene AudioContext vivo su Android
-// ---------------------------------------------------------------------------
-let silentStreamNode = null;
-let silentGainNode = null;
-
-function startSilentAudioLoop() {
-  try {
-    const ctx = getAudioCtx();
-
-    // Oscillatore a volume ZERO — Android lo riconosce come stream audio attivo
-    const oscillator = ctx.createOscillator();
-    silentGainNode = ctx.createGain();
-    silentGainNode.gain.value = 0.00001; // volume infinitesimale — inudibile ma mantiene AudioContext attivo
-
-    oscillator.connect(silentGainNode);
-    silentGainNode.connect(ctx.destination);
-    oscillator.type = 'sine';
-    oscillator.frequency.value = 440;
-    oscillator.start();
-    silentStreamNode = oscillator;
-
-    addLog("Stream silenzioso attivo — audio garantito in background", "ok");
-  } catch(e) {
-    addLog("Stream silenzioso non avviato: " + e.message, "warn");
-  }
-
-  // Fallback: controlla e riprende AudioContext ogni 10s
-  setInterval(() => {
-    try {
-      const ctx = getAudioCtx();
-      if (ctx.state === 'suspended') {
-        ctx.resume().then(() => addLog("AudioContext ripreso", "ok"));
-      }
-    } catch(e) {}
-  }, 10000);
-}
-
-// ---------------------------------------------------------------------------
-// MediaSession API — segnala ad Android che è un'app audio attiva
-// ---------------------------------------------------------------------------
-function setupMediaSession() {
-  if (!('mediaSession' in navigator)) return;
-  try {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: 'TV Intercom — CAM ' + CAMERA_ID,
-      artist: 'In servizio',
-      album: 'TV Intercom',
-    });
-    navigator.mediaSession.playbackState = 'playing';
-
-    // Handler obbligatori per mantenere la sessione attiva
-    navigator.mediaSession.setActionHandler('play', () => {
-      getAudioCtx().resume();
-    });
-    navigator.mediaSession.setActionHandler('pause', () => {});
-    navigator.mediaSession.setActionHandler('stop', () => {});
-  } catch(e) {}
-}
-
-// ---------------------------------------------------------------------------
-// Service Worker — registrazione
+// [5] SERVICE WORKER
 // ---------------------------------------------------------------------------
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('/operator/service-worker.js', {
-        scope: '/operator/'
-      });
-      addLog('Service Worker registrato', 'ok');
-
-      // Aggiorna automaticamente se disponibile nuova versione
+      const reg = await navigator.serviceWorker.register(
+        '/operator/service-worker.js',
+        { scope: '/operator/', updateViaCache: 'none' }
+      );
       reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            newWorker.postMessage({ type: 'SKIP_WAITING' });
+        const nw = reg.installing;
+        nw.addEventListener('statechange', () => {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            nw.postMessage({ type: 'SKIP_WAITING' });
           }
         });
       });
+      addLog("Service Worker registrato", "ok");
     } catch(e) {
-      addLog('Service Worker non registrato: ' + e.message, 'warn');
+      addLog("Service Worker: " + e.message, "warn");
     }
   });
 }
-
-// Imposta volume su ogni audio riprodotto
-const _origPlayAudio = playAudio;
 </script>
 </body>
 </html>
