@@ -20,6 +20,8 @@ import time
 import logging
 from typing import Optional
 from livekit.api import AccessToken, VideoGrants
+from datetime import timedelta
+
 
 log = logging.getLogger("intercom.livekit")
 
@@ -53,7 +55,7 @@ def generate_token(
     token = AccessToken(LIVEKIT_KEY, LIVEKIT_SECRET)
     token.identity = identity
     token.name = identity
-    token.ttl = ttl_seconds
+    token.ttl = timedelta(seconds=ttl_seconds)
 
     grants = VideoGrants(
         room_join=True,
