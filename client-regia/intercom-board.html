@@ -520,12 +520,11 @@ async function activateChannel(camKey) {
   if (!track) return;
   await track.unmute();
   activeChannels.add(camKey);
-  // Se la conference è aperta e questa camera è inclusa, sblocca il mic conf
   const camId = parseInt(camKey.replace('cam', ''));
+  // Se la conference è aperta e questa camera è inclusa, sblocca il mic conf
   if (confDirectorTrack && confSelectedCams.has(camId)) {
     await confDirectorTrack.unmute();
   }
-  const camId = parseInt(camKey.replace('cam', ''));
   const btn = document.getElementById(`camBtn${camId}`);
   const state = document.getElementById(`camState${camId}`);
   if (btn) { btn.classList.add('listening'); btn.classList.remove('speaking-remote'); }
