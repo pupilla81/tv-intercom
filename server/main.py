@@ -522,6 +522,33 @@ if client_path.exists():
     app.mount("/operator", StaticFiles(directory=str(client_path), html=True), name="operator")
 
 # ---------------------------------------------------------------------------
+# Manifest dinamico per camera — permette installazione PWA con cam corretta
+# ---------------------------------------------------------------------------
+from fastapi.responses import JSONResponse
+
+@app.get("/operator/manifest.json")
+async def dynamic_manifest(cam: int = 1):
+    """
+    Serve il manifest PWA con start_url personalizzato per ogni camera.
+    Esempio: /operator/manifest.json?cam=2
+    """
+    return JSONResponse(content={
+        "name": f"TV Intercom — CAM {cam}",
+        "short_name": f"CAM {cam}",
+        "description": f"App operatore Camera {cam} — TV Intercom",
+        "start_url": f"/operator/?cam={cam}",
+        "display": "standalone",
+        "background_color": "#0a0a0a",
+        "theme_color": "#0a0a0a",
+        "orientation": "portrait",
+        "prefer_related_applications": False,
+        "icons": [
+            {"src": "/operator/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/operator/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+        ]
+    })
+
+# ---------------------------------------------------------------------------
 # Serve dashboard control room
 # ---------------------------------------------------------------------------
 from fastapi.responses import FileResponse
