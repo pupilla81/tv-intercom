@@ -264,6 +264,15 @@ async function connectLiveKit() {
       addLog("Voce connessa", "ok");
     });
 
+    lkRoom.on(LivekitClient.RoomEvent.TrackSubscribed, (track, pub, participant) => {
+  if (track.kind === 'audio') {
+    const audioEl = track.attach();
+    audioEl.style.display = 'none';
+    document.body.appendChild(audioEl);
+    addLog(`Audio ricevuto da ${participant.identity}`, 'ok');
+      }
+    });
+
     lkRoom.on(RoomEvent.Disconnected, () => {
       document.getElementById("lkDot").className = "dot red";
       document.getElementById("lkLabel").textContent = "VOCE";

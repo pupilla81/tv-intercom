@@ -429,7 +429,14 @@ async function connectAllRooms() {
       });
 
       room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
-        applyVolumeToParticipant(key, participant);
+  if (track.kind === 'audio') {
+    // Attacca il track audio a un elemento per la riproduzione
+    const audioEl = track.attach();
+    audioEl.style.display = 'none';
+    document.body.appendChild(audioEl);
+    applyVolumeToParticipant(key, participant);
+    log(`Audio track attaccato da ${participant.identity} in ${key}`, 'ok');
+        }
       });
 
       await room.connect(lkUrl, token);
