@@ -60,6 +60,7 @@ def generate_token(
     grants = VideoGrants(
         room_join=True,
         room=room,
+        room_create=True,
         can_publish=can_publish,
         can_subscribe=can_subscribe,
         can_publish_data=True,
