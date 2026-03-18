@@ -205,6 +205,12 @@ function connectWS() {
       const msg = JSON.parse(event.data);
       if (msg.type === "instruction" || msg.type === "instruction_text") {
         if (msg.text) addLog(`▶ ${msg.text}`, "ok");
+      } else if (msg.type === "join_conference") {
+        addLog("Conference: ricevuto invito", "warn");
+        joinConference(msg.token);
+      } else if (msg.type === "leave_conference") {
+        addLog("Conference: chiusa dalla regia", "warn");
+        leaveConference();
       } else if (msg.type === "pong") {}
     } else if (event.data instanceof Blob) {
       lastAudioBlob = event.data;
@@ -284,13 +290,6 @@ async function connectLiveKit() {
       const regiaActive = speakers.some(s => s.identity === 'director');
       const badge = document.getElementById('lkDot');
       if (badge) badge.className = regiaActive ? 'dot orange' : 'dot green';
-    });
-
-    // Gestione canale conference — server notifica di unirsi/lasciare
-    lkRoom.on(LivekitClient.RoomEvent.DataReceived, (data) => {
-      const msg = JSON.parse(new TextDecoder().decode(data));
-      if (msg.type === 'join_conference') joinConference(msg.token);
-      if (msg.type === 'leave_conference') leaveConference();
     });
 
     await lkRoom.connect(data.url, data.token);
