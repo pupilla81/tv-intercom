@@ -225,6 +225,19 @@ body {
 </head>
 <body>
 
+<!-- Overlay sblocco audio -->
+<div id="audioUnlock" style="
+  position:fixed; inset:0; z-index:999; background:#080b0f;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+">
+  <div style="font-size:13px; letter-spacing:4px; color:#00c8ff; text-transform:uppercase">TV Intercom — Regia</div>
+  <button onclick="startRegia()" style="
+    background:#00c8ff; border:none; border-radius:8px; padding:16px 32px;
+    font-family:monospace; font-size:12px; letter-spacing:3px;
+    color:#000; font-weight:bold; cursor:pointer; text-transform:uppercase;
+  ">▶ Entra in regia</button>
+</div>
+
 <div class="header">
   <div class="title">📡 INTERCOM REGIA</div>
   <div class="status">
@@ -658,8 +671,18 @@ async function testMic() {
 // ---------------------------------------------------------------------------
 // Avvio
 // ---------------------------------------------------------------------------
+function startRegia() {
+  document.getElementById('audioUnlock').style.display = 'none';
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  ctx.resume().then(() => {
+    ctx.close();
+    init();
+  });
+}
+
+// Avvio
 buildMatrix();
-init();
+// init() viene chiamata da startRegia()
 </script>
 </body>
 </html>
