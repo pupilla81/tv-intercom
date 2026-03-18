@@ -515,13 +515,6 @@ async def ws_director(websocket: WebSocket):
         log.info("🎬 Pannello regia disconnesso")
 
 # ---------------------------------------------------------------------------
-# Serve PWA operatore
-# ---------------------------------------------------------------------------
-client_path = Path(__file__).parent.parent / "client-operator"
-if client_path.exists():
-    app.mount("/operator", StaticFiles(directory=str(client_path), html=True), name="operator")
-
-# ---------------------------------------------------------------------------
 # Manifest dinamico per camera — permette installazione PWA con cam corretta
 # ---------------------------------------------------------------------------
 from fastapi.responses import JSONResponse
@@ -547,6 +540,13 @@ async def dynamic_manifest(cam: int = 1):
             {"src": "/operator/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
         ]
     })
+
+# ---------------------------------------------------------------------------
+# Serve PWA operatore
+# ---------------------------------------------------------------------------
+client_path = Path(__file__).parent.parent / "client-operator"
+if client_path.exists():
+    app.mount("/operator", StaticFiles(directory=str(client_path), html=True), name="operator")
 
 # ---------------------------------------------------------------------------
 # Serve dashboard control room
