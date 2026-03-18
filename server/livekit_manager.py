@@ -47,26 +47,22 @@ def generate_token(
     room: str,
     can_publish: bool = True,
     can_subscribe: bool = True,
-    ttl_seconds: int = 14400,  # 4 ore
+    ttl_seconds: int = 14400,
 ) -> str:
-    """
-    Genera un token JWT per accedere a una room LiveKit.
-    """
-    token = AccessToken(LIVEKIT_KEY, LIVEKIT_SECRET)
-    token.identity = identity
-    token.name = identity
-    token.ttl = timedelta(seconds=ttl_seconds)
-
-    grants = VideoGrants(
-        room_join=True,
-        room=room,
-        room_create=True,
-        can_publish=can_publish,
-        can_subscribe=can_subscribe,
-        can_publish_data=True,
+    token = (
+        AccessToken(LIVEKIT_KEY, LIVEKIT_SECRET)
+        .with_identity(identity)
+        .with_name(identity)
+        .with_ttl(timedelta(seconds=ttl_seconds))
+        .with_grants(VideoGrants(
+            room_join=True,
+            room=room,
+            room_create=True,
+            can_publish=can_publish,
+            can_subscribe=can_subscribe,
+            can_publish_data=True,
+        ))
     )
-    token.video_grants = grants
-
     return token.to_jwt()
 
 
