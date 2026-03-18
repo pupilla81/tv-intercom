@@ -455,12 +455,14 @@ async function connectAllRooms() {
 
       await room.connect(lkUrl, token);
 
-      // Entra in room cam con mic in muto di default
+      // Entra in room cam con mic MUTATO di default
       if (key !== 'general') {
         const track = await LivekitClient.createLocalAudioTrack({
           echoCancellation: true, noiseSuppression: true,
         });
         await room.localParticipant.publishTrack(track, { muted: true });
+        // Muta esplicitamente — publishTrack muted:true non sempre sufficiente
+        await track.mute();
         localTracks[key] = track;
         log(`Track audio pubblicato (muto) in ${key}`, 'ok');
       }
@@ -518,6 +520,11 @@ async function activateChannel(camKey) {
   if (!track) return;
   await track.unmute();
   activeChannels.add(camKey);
+  // Se la conference è aperta e questa camera è inclusa, sblocca il mic conf
+  const camId = parseInt(camKey.replace('cam', ''));
+  if (confDirectorTrack && confSelectedCams.has(camId)) {
+    await confDirectorTrack.unmute();
+  }
   const camId = parseInt(camKey.replace('cam', ''));
   const btn = document.getElementById(`camBtn${camId}`);
   const state = document.getElementById(`camState${camId}`);
@@ -531,6 +538,10 @@ async function deactivateChannel(camKey) {
   if (!track) return;
   await track.mute();
   activeChannels.delete(camKey);
+  // Rimuta conf track se nessun canale attivo
+  if (confDirectorTrack && activeChannels.size === 0) {
+    await confDirectorTrack.mute();
+  }
   const camId = parseInt(camKey.replace('cam', ''));
   const btn = document.getElementById(`camBtn${camId}`);
   const state = document.getElementById(`camState${camId}`);
@@ -744,9 +755,10 @@ async function openConference() {
     });
     confRoomObj.on(RoomEvent.ParticipantConnected, (p) => log(`Conf: ${p.identity} connesso`, 'ok'));
 
-    await confRoomObj.connect(data.url, data.director_token);
+    await confRoomObj.connect(data.url || lkUrl, data.director_token);
     confDirectorTrack = await LivekitClient.createLocalAudioTrack({echoCancellation: true, noiseSuppression: true});
     await confRoomObj.localParticipant.publishTrack(confDirectorTrack, {muted: true});
+    await confDirectorTrack.mute();
 
     const camList = [...confSelectedCams].map(c => `CAM${c}`).join(', ');
     document.getElementById('confStatus').textContent = `APERTO: ${camList}`;
