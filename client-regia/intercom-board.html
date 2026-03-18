@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TV Intercom — Pannello Regia</title>
+<style>
+:root {
+  --bg: #080b0f; --surface: #0e1318; --panel: #131a22;
+  --border: #1e2d3d; --text: #c8d8e8; --muted: #4a6070;
+  --accent: #00c8ff; --green: #00e676; --orange: #ff9500;
+  --red: #ff3b30; --yellow: #ffd60a;
+  --mono: 'Courier New', monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: var(--mono);
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; padding: 20px; gap: 16px;
+  user-select: none;
+}
+
+/* Header */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; max-width: 800px;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.title { font-size: 12px; letter-spacing: 4px; color: var(--accent); }
+.status { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+.dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+
+/* PTT Mode toggle */
+.mode-bar {
+  display: flex; gap: 8px; width: 100%; max-width: 800px;
+  align-items: center;
+}
+.mode-btn {
+  padding: 7px 16px; border-radius: 4px; cursor: pointer;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 2px;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--muted); transition: all 0.15s;
+}
+.mode-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,200,255,0.08); }
+.sep { flex:1; }
+
+/* Main grid */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 16px;
+  width: 100%; max-width: 800px;
+}
+
+/* Camera matrix */
+.matrix { display: flex; flex-direction: column; gap: 10px; }
+
+.cam-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 44px 44px;
+  gap: 8px; align-items: center;
+}
+
+/* CAM button — tasto principale */
+.cam-btn {
+  position: relative;
+  height: 64px;
+  border-radius: 8px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 4px;
+  transition: all 0.08s;
+  outline: none;
+}
+.cam-btn .cam-num {
+  font-size: 22px; font-weight: bold;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+.cam-btn .cam-state {
+  font-size: 9px; letter-spacing: 2px;
+  color: var(--muted);
+}
+
+/* Stati camera */
+.cam-btn.listening {
+  border-color: var(--accent);
+  background: rgba(0,200,255,0.06);
+  box-shadow: 0 0 16px rgba(0,200,255,0.2);
+}
+.cam-btn.listening .cam-num { color: var(--accent); }
+.cam-btn.listening .cam-state { color: var(--accent); }
+
+.cam-btn.speaking-remote {
+  border-color: var(--orange);
+  background: rgba(255,149,0,0.08);
+  box-shadow: 0 0 16px rgba(255,149,0,0.3);
+  animation: speaking-pulse 0.8s infinite;
+}
+.cam-btn.speaking-remote .cam-num { color: var(--orange); }
+.cam-btn.speaking-remote .cam-state { color: var(--orange); }
+
+/* Speaking indicator dot */
+.speak-dot {
+  position: absolute; top: 6px; right: 6px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: transparent;
+}
+.speak-dot.active {
+  background: var(--orange);
+  box-shadow: 0 0 6px var(--orange);
+  animation: pulse 0.6s infinite;
+}
+
+/* Volume slider per canale */
+.vol-slider {
+  -webkit-appearance: none;
+  width: 100%; height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none; cursor: pointer;
+}
+.vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent); cursor: pointer;
+}
+
+/* Mute button */
+.mute-btn {
+  height: 44px; width: 44px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; color: var(--muted);
+}
+.mute-btn.muted { border-color: var(--red); color: var(--red); background: rgba(255,59,48,0.1); }
+.mute-btn:hover { border-color: var(--muted); }
+
+/* TUTTI button */
+.all-btn {
+  height: 64px; border-radius: 8px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  cursor: pointer; font-family: var(--mono);
+  font-size: 11px; letter-spacing: 3px;
+  color: var(--muted); transition: all 0.08s;
+  display: flex; align-items: center; justify-content: center;
+}
+.all-btn.active {
+  border-color: var(--green); color: var(--green);
+  background: rgba(0,230,118,0.08);
+  box-shadow: 0 0 20px rgba(0,230,118,0.2);
+}
+
+/* Right panel */
+.right-panel { display: flex; flex-direction: column; gap: 12px; }
+
+.panel-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+}
+.panel-header {
+  padding: 8px 12px; font-size: 9px; letter-spacing: 3px;
+  color: var(--muted); border-bottom: 1px solid var(--border);
+  background: rgba(0,0,0,0.2);
+}
+.panel-body { padding: 12px; }
+
+/* Mic status */
+.mic-status {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px; border-radius: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.mic-icon { font-size: 24px; }
+.mic-info { flex: 1; }
+.mic-label { font-size: 10px; letter-spacing: 2px; color: var(--muted); }
+.mic-state { font-size: 12px; color: var(--muted); }
+.mic-state.active { color: var(--green); }
+.mic-state.ptt-active { color: var(--orange); animation: blink 0.5s infinite; }
+
+/* Log */
+.log-area {
+  height: 120px; overflow-y: auto;
+  font-size: 10px; line-height: 1.8;
+  color: var(--muted);
+}
+.log-line { display: flex; gap: 8px; }
+.log-time { color: var(--border); min-width: 60px; }
+.log-ok { color: var(--green); }
+.log-warn { color: var(--orange); }
+.log-err { color: var(--red); }
+.log-info { color: var(--accent); }
+
+/* PTT overlay */
+#pttOverlay {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--orange); color: #000;
+  padding: 12px 32px; border-radius: 30px;
+  font-size: 12px; letter-spacing: 3px; font-weight: bold;
+  display: none; animation: pulse 0.5s infinite;
+  z-index: 100;
+}
+#pttOverlay.visible { display: block; }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+@keyframes blink  { 0%,100%{opacity:1} 50%{opacity:0.2} }
+@keyframes speaking-pulse { 0%,100%{box-shadow:0 0 16px rgba(255,149,0,0.3)} 50%{box-shadow:0 0 30px rgba(255,149,0,0.6)} }
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="title">📡 INTERCOM REGIA</div>
+  <div class="status">
+    <div class="dot" id="lkDot"></div>
+    <span id="lkStatus">DISCONNESSO</span>
+  </div>
+</div>
+
+<!-- Mode bar -->
+<div class="mode-bar">
+  <button class="mode-btn active" id="btnPTT" onclick="setMode('ptt')">PTT</button>
+  <button class="mode-btn" id="btnLatch" onclick="setMode('latch')">LATCH</button>
+  <div class="sep"></div>
+  <button class="mode-btn" id="btnMicTest" onclick="testMic()" style="color:var(--yellow);border-color:var(--yellow)">🎤 TEST MIC</button>
+</div>
+
+<div class="grid">
+
+  <!-- Camera matrix -->
+  <div class="matrix">
+
+    <!-- TUTTI -->
+    <button class="all-btn" id="btnAll"
+      onmousedown="onAllDown()" onmouseup="onAllUp()" onmouseleave="onAllUp()"
+      ontouchstart="(e)=>{e.preventDefault();onAllDown()}" ontouchend="onAllUp()">
+      📢 TUTTI
+    </button>
+
+    <!-- CAM 1-5 -->
+    <div id="camMatrix"></div>
+
+  </div>
+
+  <!-- Right panel -->
+  <div class="right-panel">
+
+    <!-- Microfono -->
+    <div class="panel-box">
+      <div class="panel-header">MICROFONO REGIA</div>
+      <div class="panel-body">
+        <div class="mic-status">
+          <div class="mic-icon">🎙</div>
+          <div class="mic-info">
+            <div class="mic-label">STATO</div>
+            <div class="mic-state" id="micState">MUTO</div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:6px;">VOLUME MIC</div>
+        <input type="range" class="vol-slider" id="micVolume" min="0" max="100" value="80"
+          oninput="setMicVolume(this.value)"/>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="panel-box" style="flex:1">
+      <div class="panel-header">LOG</div>
+      <div class="panel-body" style="padding:8px;">
+        <div class="log-area" id="logArea"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- PTT overlay -->
+<div id="pttOverlay">● TRASMISSIONE IN CORSO</div>
+
+<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+<script>
+const SERVER = window.location.origin;
+const NUM_CAMS = 5;
+
+// ---------------------------------------------------------------------------
+// Stato
+// ---------------------------------------------------------------------------
+let mode = 'ptt';          // 'ptt' | 'latch'
+let rooms = {};            // roomName -> LiveKit Room object
+let localTracks = {};      // roomName -> LocalAudioTrack
+let activeChannels = new Set(); // room attive in trasmissione
+let camVolumes = {};       // cam_id -> volume 0-1
+let camMuted = {};         // cam_id -> bool
+let camSpeaking = {};      // cam_id -> bool
+let micVolume = 0.8;
+let allActive = false;
+let tokens = {};
+let lkUrl = '';
+
+for (let i = 1; i <= NUM_CAMS; i++) {
+  camVolumes[i] = 1.0;
+  camMuted[i] = false;
+  camSpeaking[i] = false;
+}
+
+// ---------------------------------------------------------------------------
+// Log
+// ---------------------------------------------------------------------------
+function log(msg, type = '') {
+  const area = document.getElementById('logArea');
+  const t = new Date().toLocaleTimeString('it-IT');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="log-time">${t}</span><span class="log-${type||'info'}">${msg}</span>`;
+  area.appendChild(line);
+  area.scrollTop = area.scrollHeight;
+  while (area.children.length > 50) area.removeChild(area.firstChild);
+}
+
+// ---------------------------------------------------------------------------
+// Build UI
+// ---------------------------------------------------------------------------
+function buildMatrix() {
+  const container = document.getElementById('camMatrix');
+  container.innerHTML = '';
+  for (let i = 1; i <= NUM_CAMS; i++) {
+    const row = document.createElement('div');
+    row.className = 'cam-row';
+    row.style.marginBottom = '8px';
+    row.innerHTML = `
+      <button class="cam-btn" id="camBtn${i}"
+        onmousedown="onCamDown(${i})" onmouseup="onCamUp(${i})" onmouseleave="onCamUp(${i})"
+        ontouchstart="handleTouch(event,${i},'down')" ontouchend="handleTouch(event,${i},'up')">
+        <div class="speak-dot" id="speakDot${i}"></div>
+        <div class="cam-num">CAM ${i}</div>
+        <div class="cam-state" id="camState${i}">STANDBY</div>
+      </button>
+      <input type="range" class="vol-slider" id="vol${i}" min="0" max="100" value="100"
+        oninput="setCamVolume(${i}, this.value)" title="Volume CAM ${i}"/>
+      <button class="mute-btn" id="muteBtn${i}" onclick="toggleMute(${i})" title="Muto CAM ${i}">🔊</button>
+    `;
+    container.appendChild(row);
+  }
+}
+
+function handleTouch(e, cam, dir) {
+  e.preventDefault();
+  if (dir === 'down') onCamDown(cam);
+  else onCamUp(cam);
+}
+
+// ---------------------------------------------------------------------------
+// Init LiveKit
+// ---------------------------------------------------------------------------
+async function init() {
+  try {
+    const resp = await fetch(`${SERVER}/api/livekit/token/director`);
+    const data = await resp.json();
+    tokens = data.tokens;
+    lkUrl  = data.url;
+    log(`Token ricevuti per ${Object.keys(tokens).length} room`, 'ok');
+    await connectAllRooms();
+  } catch(e) {
+    log('Errore init: ' + e.message, 'err');
+  }
+}
+
+async function connectAllRooms() {
+  const { Room, RoomEvent } = LivekitClient;
+
+  for (const [key, token] of Object.entries(tokens)) {
+    try {
+      const room = new Room({
+        audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true },
+        publishDefaults: { audioPreset: LivekitClient.AudioPresets.speech },
+      });
+
+      // Active speaker
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        if (key.startsWith('cam')) {
+          const camId = parseInt(key.replace('cam', ''));
+          const isSpeaking = speakers.some(s => s.identity === `cam${camId}`);
+          updateSpeaking(camId, isSpeaking);
+        }
+      });
+
+      room.on(RoomEvent.Connected, () => {
+        log(`Connesso a room: ${key}`, 'ok');
+        updateConnectionStatus();
+      });
+
+      room.on(RoomEvent.Disconnected, () => {
+        log(`Disconnesso da room: ${key}`, 'warn');
+        updateConnectionStatus();
+      });
+
+      // Imposta volume per ogni partecipante remoto
+      room.on(RoomEvent.ParticipantConnected, (participant) => {
+        log(`${participant.identity} connesso a ${key}`, 'info');
+        applyVolumeToParticipant(key, participant);
+      });
+
+      room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
+        applyVolumeToParticipant(key, participant);
+      });
+
+      await room.connect(lkUrl, token);
+
+      // Entra in room cam con mic in muto di default
+      if (key !== 'general') {
+        const track = await LivekitClient.createLocalAudioTrack({
+          echoCancellation: true, noiseSuppression: true,
+        });
+        await room.localParticipant.publishTrack(track, { muted: true });
+        localTracks[key] = track;
+        log(`Track audio pubblicato (muto) in ${key}`, 'ok');
+      }
+
+      rooms[key] = room;
+
+    } catch(e) {
+      log(`Errore room ${key}: ${e.message}`, 'err');
+    }
+  }
+}
+
+function applyVolumeToParticipant(roomKey, participant) {
+  if (!roomKey.startsWith('cam')) return;
+  const camId = parseInt(roomKey.replace('cam', ''));
+  if (camMuted[camId]) {
+    participant.setVolume(0);
+  } else {
+    participant.setVolume(camVolumes[camId]);
+  }
+}
+
+function updateConnectionStatus() {
+  const connected = Object.values(rooms).filter(r =>
+    r.state === 'connected'
+  ).length;
+  const total = Object.keys(tokens).length;
+  const dot = document.getElementById('lkDot');
+  const status = document.getElementById('lkStatus');
+  if (connected === total) {
+    dot.className = 'dot on';
+    status.textContent = `CONNESSO (${connected} ROOM)`;
+  } else {
+    dot.className = 'dot';
+    status.textContent = `${connected}/${total} ROOM`;
+  }
+}
+
+function updateSpeaking(camId, isSpeaking) {
+  camSpeaking[camId] = isSpeaking;
+  const dot = document.getElementById(`speakDot${camId}`);
+  const btn = document.getElementById(`camBtn${camId}`);
+  if (dot) dot.className = 'speak-dot' + (isSpeaking ? ' active' : '');
+  if (btn && !activeChannels.has(`cam${camId}`)) {
+    if (isSpeaking) btn.classList.add('speaking-remote');
+    else btn.classList.remove('speaking-remote');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Attiva/disattiva canale camera
+// ---------------------------------------------------------------------------
+async function activateChannel(camKey) {
+  const track = localTracks[camKey];
+  if (!track) return;
+  await track.unmute();
+  activeChannels.add(camKey);
+  const camId = parseInt(camKey.replace('cam', ''));
+  const btn = document.getElementById(`camBtn${camId}`);
+  const state = document.getElementById(`camState${camId}`);
+  if (btn) { btn.classList.add('listening'); btn.classList.remove('speaking-remote'); }
+  if (state) state.textContent = 'TX ATTIVO';
+  updateMicState();
+}
+
+async function deactivateChannel(camKey) {
+  const track = localTracks[camKey];
+  if (!track) return;
+  await track.mute();
+  activeChannels.delete(camKey);
+  const camId = parseInt(camKey.replace('cam', ''));
+  const btn = document.getElementById(`camBtn${camId}`);
+  const state = document.getElementById(`camState${camId}`);
+  if (btn) btn.classList.remove('listening');
+  if (state) state.textContent = camSpeaking[camId] ? 'PARLA' : 'STANDBY';
+  updateMicState();
+}
+
+function updateMicState() {
+  const el = document.getElementById('micState');
+  const overlay = document.getElementById('pttOverlay');
+  if (activeChannels.size > 0) {
+    const cams = [...activeChannels].map(k => k.replace('cam','CAM ')).join(', ');
+    el.textContent = `TX → ${cams}`;
+    el.className = 'mic-state ptt-active';
+    overlay.className = 'pttOverlay visible';
+  } else {
+    el.textContent = 'MUTO';
+    el.className = 'mic-state';
+    overlay.className = 'pttOverlay';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handlers tasti camera
+// ---------------------------------------------------------------------------
+function onCamDown(camId) {
+  const key = `cam${camId}`;
+  if (mode === 'ptt') {
+    activateChannel(key);
+  } else {
+    // latch: toggle
+    if (activeChannels.has(key)) deactivateChannel(key);
+    else activateChannel(key);
+  }
+}
+
+function onCamUp(camId) {
+  if (mode === 'ptt') {
+    deactivateChannel(`cam${camId}`);
+  }
+  // In latch non fare nulla al release
+}
+
+// ---------------------------------------------------------------------------
+// TUTTI
+// ---------------------------------------------------------------------------
+function onAllDown() {
+  if (mode === 'ptt') {
+    for (let i = 1; i <= NUM_CAMS; i++) activateChannel(`cam${i}`);
+    document.getElementById('btnAll').classList.add('active');
+  } else {
+    if (allActive) {
+      for (let i = 1; i <= NUM_CAMS; i++) deactivateChannel(`cam${i}`);
+      allActive = false;
+      document.getElementById('btnAll').classList.remove('active');
+    } else {
+      for (let i = 1; i <= NUM_CAMS; i++) activateChannel(`cam${i}`);
+      allActive = true;
+      document.getElementById('btnAll').classList.add('active');
+    }
+  }
+}
+
+function onAllUp() {
+  if (mode === 'ptt') {
+    for (let i = 1; i <= NUM_CAMS; i++) deactivateChannel(`cam${i}`);
+    document.getElementById('btnAll').classList.remove('active');
+    allActive = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Volume e mute
+// ---------------------------------------------------------------------------
+function setCamVolume(camId, val) {
+  camVolumes[camId] = val / 100;
+  const room = rooms[`cam${camId}`];
+  if (!room) return;
+  room.remoteParticipants.forEach(p => {
+    if (!camMuted[camId]) p.setVolume(camVolumes[camId]);
+  });
+}
+
+function toggleMute(camId) {
+  camMuted[camId] = !camMuted[camId];
+  const btn = document.getElementById(`muteBtn${camId}`);
+  const room = rooms[`cam${camId}`];
+  btn.textContent = camMuted[camId] ? '🔇' : '🔊';
+  btn.className = 'mute-btn' + (camMuted[camId] ? ' muted' : '');
+  if (room) {
+    room.remoteParticipants.forEach(p => {
+      p.setVolume(camMuted[camId] ? 0 : camVolumes[camId]);
+    });
+  }
+  log(`CAM ${camId} ${camMuted[camId] ? 'MUTATO' : 'ATTIVO'}`, camMuted[camId] ? 'warn' : 'ok');
+}
+
+function setMicVolume(val) {
+  micVolume = val / 100;
+}
+
+// ---------------------------------------------------------------------------
+// Mode PTT / Latch
+// ---------------------------------------------------------------------------
+function setMode(m) {
+  mode = m;
+  // Disattiva tutti i canali attivi quando cambia modalità
+  [...activeChannels].forEach(k => deactivateChannel(k));
+  allActive = false;
+  document.getElementById('btnAll').classList.remove('active');
+  document.getElementById('btnPTT').classList.toggle('active', m === 'ptt');
+  document.getElementById('btnLatch').classList.toggle('active', m === 'latch');
+  log(`Modalità: ${m.toUpperCase()}`, 'info');
+}
+
+// ---------------------------------------------------------------------------
+// Tastiera — tasti 1-5 per PTT da tastiera/tastierino
+// ---------------------------------------------------------------------------
+const pressedKeys = new Set();
+document.addEventListener('keydown', e => {
+  const key = e.key;
+  const num = parseInt(key);
+  if (num >= 1 && num <= 5 && !pressedKeys.has(num)) {
+    pressedKeys.add(num);
+    onCamDown(num);
+  }
+  if (key === '0' && !pressedKeys.has(0)) {
+    pressedKeys.add(0);
+    onAllDown();
+  }
+});
+document.addEventListener('keyup', e => {
+  const num = parseInt(e.key);
+  if (num >= 1 && num <= 5) {
+    pressedKeys.delete(num);
+    onCamUp(num);
+  }
+  if (e.key === '0') {
+    pressedKeys.delete(0);
+    onAllUp();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Test mic
+// ---------------------------------------------------------------------------
+async function testMic() {
+  log('Test microfono...', 'info');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(t => t.stop());
+    log('Microfono disponibile ✓', 'ok');
+  } catch(e) {
+    log('Microfono non disponibile: ' + e.message, 'err');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Avvio
+// ---------------------------------------------------------------------------
+buildMatrix();
+init();
+</script>
+</body>
+</html>
