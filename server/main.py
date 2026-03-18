@@ -593,6 +593,11 @@ client_path = Path(__file__).parent.parent / "client-operator"
 if client_path.exists():
     app.mount("/operator", StaticFiles(directory=str(client_path), html=True), name="operator")
 
+# Serve pannello regia LiveKit
+regia_path = Path(__file__).parent.parent / "client-regia"
+if regia_path.exists():
+    app.mount("/regia", StaticFiles(directory=str(regia_path), html=True), name="regia")
+
 # ---------------------------------------------------------------------------
 # Serve dashboard control room
 # ---------------------------------------------------------------------------
