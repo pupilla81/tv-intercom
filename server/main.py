@@ -515,38 +515,16 @@ async def ws_director(websocket: WebSocket):
         log.info("🎬 Pannello regia disconnesso")
 
 # ---------------------------------------------------------------------------
-# Manifest dinamico per camera — permette installazione PWA con cam corretta
+# Serve PWA operatore
 # ---------------------------------------------------------------------------
-from fastapi.responses import JSONResponse
-
-@app.get("/operator/manifest.json")
-async def dynamic_manifest(cam: int = 1):
-    """
-    Serve il manifest PWA con start_url personalizzato per ogni camera.
-    Esempio: /operator/manifest.json?cam=2
-    """
-    return JSONResponse(content={
-        "name": f"TV Intercom — CAM {cam}",
-        "short_name": f"CAM {cam}",
-        "description": f"App operatore Camera {cam} — TV Intercom",
-        "start_url": f"/operator/?cam={cam}",
-        "display": "standalone",
-        "background_color": "#0a0a0a",
-        "theme_color": "#0a0a0a",
-        "orientation": "portrait",
-        "prefer_related_applications": False,
-        "icons": [
-            {"src": "/operator/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-            {"src": "/operator/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
-        ]
-    })
-
 # ---------------------------------------------------------------------------
 # LiveKit — Comunicazioni vocali
 # ---------------------------------------------------------------------------
+sys.path.append(str(Path(__file__).parent))
 from livekit_manager import (
     generate_operator_token,
     generate_all_director_tokens,
+    generate_token,
     get_livekit_info,
     LIVEKIT_URL,
     NUM_CAMERAS,
@@ -554,49 +532,134 @@ from livekit_manager import (
     ROOM_GENERAL,
 )
 
+# Stato conference room
+conference_state = {
+    "active": False,
+    "cameras": [],
+    "room": "intercom-conference",
+}
+
 @app.get("/api/livekit/info")
 async def api_livekit_info():
-    """Info configurazione LiveKit."""
     return get_livekit_info()
 
 @app.get("/api/livekit/token/operator/{cam_id}")
 async def api_operator_token(cam_id: int):
-    """Genera token per operatore camera N."""
     if cam_id < 1 or cam_id > NUM_CAMERAS:
         raise HTTPException(status_code=400, detail=f"Camera {cam_id} non valida")
     token = generate_operator_token(cam_id)
-    return {
-        "token": token,
-        "url": LIVEKIT_URL,
-        "room": room_name(cam_id),
-        "identity": f"cam{cam_id}",
-    }
+    return {"token": token, "url": LIVEKIT_URL, "room": room_name(cam_id), "identity": f"cam{cam_id}"}
 
 @app.get("/api/livekit/token/director")
 async def api_director_tokens():
-    """Genera tutti i token per il pannello regia."""
     tokens = generate_all_director_tokens()
     return {
         "tokens": tokens,
         "url": LIVEKIT_URL,
-        "rooms": {
-            "general": ROOM_GENERAL,
-            **{f"cam{i}": room_name(i) for i in range(1, NUM_CAMERAS + 1)}
-        }
+        "rooms": {"general": ROOM_GENERAL, **{f"cam{i}": room_name(i) for i in range(1, NUM_CAMERAS + 1)}}
     }
 
+class ConferenceRequest(BaseModel):
+    cameras: list[int]
 
+@app.post("/api/livekit/conference/open")
+async def api_conference_open(req: ConferenceRequest):
+    """Apre una conference room e genera token per camere e regia."""
+    conf_room = conference_state["room"]
+    conference_state["active"] = True
+    conference_state["cameras"] = req.cameras
+
+    # Token regia per conference
+    director_token = generate_token(
+        identity="director-conf",
+        room=conf_room,
+        can_publish=True,
+        can_subscribe=True,
+    )
+
+    # Token per ogni camera selezionata
+    camera_tokens = []
+    for cam_id in req.cameras:
+        token = generate_token(
+            identity=f"cam{cam_id}",
+            room=conf_room,
+            can_publish=True,
+            can_subscribe=True,
+        )
+        camera_tokens.append({"cam_id": cam_id, "token": token})
+
+    # Notifica le camere via WebSocket di unirsi alla conference
+    for cam_id in req.cameras:
+        ws = state.operator_connections.get(cam_id)
+        if ws:
+            try:
+                token_data = next(t for t in camera_tokens if t["cam_id"] == cam_id)
+                await ws.send_text(json.dumps({
+                    "type": "join_conference",
+                    "token": token_data["token"],
+                    "room": conf_room,
+                }))
+                log.info(f"Conference: notificata CAM {cam_id}")
+            except Exception as e:
+                log.error(f"Conference: errore notifica CAM {cam_id}: {e}")
+
+    log.info(f"Conference aperta: CAM {req.cameras}")
+    return {
+        "ok": True,
+        "url": LIVEKIT_URL,
+        "director_token": director_token,
+        "camera_tokens": camera_tokens,
+        "room": conf_room,
+    }
+
+@app.post("/api/livekit/conference/close")
+async def api_conference_close():
+    """Chiude la conference room — notifica le camere di uscire."""
+    cameras = conference_state.get("cameras", [])
+    for cam_id in cameras:
+        ws = state.operator_connections.get(cam_id)
+        if ws:
+            try:
+                await ws.send_text(json.dumps({"type": "leave_conference"}))
+            except Exception:
+                pass
+    conference_state["active"] = False
+    conference_state["cameras"] = []
+    log.info("Conference chiusa")
+    return {"ok": True}
 # ---------------------------------------------------------------------------
-# Serve PWA operatore
+# Manifest dinamico per camera — PRIMA del mount statico
 # ---------------------------------------------------------------------------
+from fastapi.responses import JSONResponse
+
+@app.get("/manifest/{cam_id}")
+async def dynamic_manifest(cam_id: int):
+    """
+    Manifest PWA con start_url personalizzato per camera.
+    Esempio: /manifest/2
+    """
+    return JSONResponse(
+        content={
+            "name": f"TV Intercom — CAM {cam_id}",
+            "short_name": f"CAM {cam_id}",
+            "description": f"App operatore Camera {cam_id} — TV Intercom",
+            "start_url": f"/operator/?cam={cam_id}",
+            "display": "standalone",
+            "background_color": "#0a0a0a",
+            "theme_color": "#0a0a0a",
+            "orientation": "portrait",
+            "prefer_related_applications": False,
+            "icons": [
+                {"src": "/operator/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+                {"src": "/operator/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+            ]
+        },
+        headers={"Content-Type": "application/manifest+json"}
+    )
+
 client_path = Path(__file__).parent.parent / "client-operator"
 if client_path.exists():
     app.mount("/operator", StaticFiles(directory=str(client_path), html=True), name="operator")
-
-# Serve pannello regia LiveKit
-regia_path = Path(__file__).parent.parent / "client-regia"
-if regia_path.exists():
-    app.mount("/regia", StaticFiles(directory=str(regia_path), html=True), name="regia")
 
 # ---------------------------------------------------------------------------
 # Serve dashboard control room

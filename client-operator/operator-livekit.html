@@ -108,9 +108,7 @@ body {
 </div>
 
 <!-- PTT button -->
-<button class="ptt-btn" id="pttBtn"
-  onmousedown="pttOn()" onmouseup="pttOff()" onmouseleave="pttOff()"
-  ontouchstart="(e)=>{e.preventDefault();pttOn()}" ontouchend="pttOff()">
+<button class="ptt-btn" id="pttBtn">
   <span class="ptt-icon">🎙</span>
   <span class="ptt-label" id="pttLabel">TIENI PER PARLARE</span>
 </button>
@@ -264,15 +262,6 @@ async function connectLiveKit() {
       addLog("Voce connessa", "ok");
     });
 
-    lkRoom.on(LivekitClient.RoomEvent.TrackSubscribed, (track, pub, participant) => {
-  if (track.kind === 'audio') {
-    const audioEl = track.attach();
-    audioEl.style.display = 'none';
-    document.body.appendChild(audioEl);
-    addLog(`Audio ricevuto da ${participant.identity}`, 'ok');
-      }
-    });
-
     lkRoom.on(RoomEvent.Disconnected, () => {
       document.getElementById("lkDot").className = "dot red";
       document.getElementById("lkLabel").textContent = "VOCE";
@@ -280,14 +269,38 @@ async function connectLiveKit() {
       setTimeout(connectLiveKit, 3000);
     });
 
+    // Riproduce audio remoto (es. voce regia)
+    lkRoom.on(LivekitClient.RoomEvent.TrackSubscribed, (track, pub, participant) => {
+      if (track.kind === 'audio') {
+        const audioEl = track.attach();
+        audioEl.style.display = 'none';
+        document.body.appendChild(audioEl);
+        addLog(`Audio da: ${participant.identity}`, "ok");
+      }
+    });
+
+    // Notifica quando la regia parla
+    lkRoom.on(LivekitClient.RoomEvent.ActiveSpeakersChanged, (speakers) => {
+      const regiaActive = speakers.some(s => s.identity === 'director');
+      const badge = document.getElementById('lkDot');
+      if (badge) badge.className = regiaActive ? 'dot orange' : 'dot green';
+    });
+
+    // Gestione canale conference — server notifica di unirsi/lasciare
+    lkRoom.on(LivekitClient.RoomEvent.DataReceived, (data) => {
+      const msg = JSON.parse(new TextDecoder().decode(data));
+      if (msg.type === 'join_conference') joinConference(msg.token);
+      if (msg.type === 'leave_conference') leaveConference();
+    });
+
     await lkRoom.connect(data.url, data.token);
 
-    // Pubblica track audio in muto — diventa attivo con PTT
+    // Pubblica track audio MUTATO — diventa attivo solo con PTT
     localTrack = await LivekitClient.createLocalAudioTrack({
       echoCancellation: true, noiseSuppression: true,
     });
     await lkRoom.localParticipant.publishTrack(localTrack, { muted: true });
-    addLog("Microfono pronto (muto)", "ok");
+    addLog("Microfono pronto — PTT attivo", "ok");
 
   } catch(e) {
     addLog("Errore LiveKit: " + e.message, "err");
@@ -296,27 +309,150 @@ async function connectLiveKit() {
 }
 
 // ---------------------------------------------------------------------------
-// PTT
+// PTT + LATCH
 // ---------------------------------------------------------------------------
+let latchMode = false;       // false = PTT, true = Latch
+let latchActive = false;     // mic aperto in latch
+let lastTapTime = 0;
+const DOUBLE_TAP_MS = 350;
+
 function pttOn() {
-  if (!localTrack) return;
+  if (!localTrack || latchMode) return;
   localTrack.unmute();
+  if (localTrack._confTrack) localTrack._confTrack.unmute();
   document.getElementById("pttBtn").classList.add("active");
-  document.getElementById("pttLabel").textContent = "● TRASMISSIONE";
-  addLog("PTT ON — trasmissione aperta", "warn");
+  document.getElementById("pttLabel").textContent = "● TX";
 }
 
 function pttOff() {
-  if (!localTrack) return;
+  if (!localTrack || latchMode) return;
   localTrack.mute();
+  if (localTrack._confTrack) localTrack._confTrack.mute();
   document.getElementById("pttBtn").classList.remove("active");
   document.getElementById("pttLabel").textContent = "TIENI PER PARLARE";
-  addLog("PTT OFF", "");
 }
+
+function pttTap() {
+  const now = Date.now();
+  const isDouble = (now - lastTapTime) < DOUBLE_TAP_MS;
+  lastTapTime = now;
+
+  if (isDouble) {
+    // Doppio tap — toglie la latch mode
+    if (latchMode) {
+      latchMode = false;
+      latchActive = false;
+      localTrack?.mute();
+      document.getElementById("pttBtn").classList.remove("active");
+      document.getElementById("pttBtn").style.borderColor = '';
+      document.getElementById("pttLabel").textContent = "TIENI PER PARLARE";
+      addLog("Latch MODE disattivato", "warn");
+    }
+    return;
+  }
+
+  if (latchMode) {
+    // In latch: tap singolo toglie/mette muto
+    latchActive = !latchActive;
+    if (latchActive) {
+      localTrack?.unmute();
+      document.getElementById("pttBtn").classList.add("active");
+      document.getElementById("pttLabel").textContent = "● LATCH TX";
+      addLog("Latch: mic APERTO", "warn");
+    } else {
+      localTrack?.mute();
+      document.getElementById("pttBtn").classList.remove("active");
+      document.getElementById("pttLabel").textContent = "LATCH — tocca per parlare";
+      addLog("Latch: mic CHIUSO", "");
+    }
+  }
+}
+
+function enableLatch() {
+  latchMode = true;
+  latchActive = false;
+  document.getElementById("pttBtn").style.borderColor = 'var(--yellow, #ffd60a)';
+  document.getElementById("pttLabel").textContent = "LATCH — tocca per parlare";
+  addLog("Latch MODE attivato — doppio tap per uscire", "warn");
+}
+
+// Pulsante touch — PTT con rilevamento doppio tap per latch
+const pttBtnEl = document.getElementById("pttBtn");
+let pttTouchStart = 0;
+
+pttBtnEl.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  pttTouchStart = Date.now();
+  const now = Date.now();
+  if ((now - lastTapTime) < DOUBLE_TAP_MS && !latchMode) {
+    // Doppio tap — attiva latch
+    enableLatch();
+    lastTapTime = 0;
+    return;
+  }
+  lastTapTime = now;
+  pttOn();
+}, { passive: false });
+
+pttBtnEl.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  const held = Date.now() - pttTouchStart;
+  if (latchMode) {
+    pttTap();
+  } else {
+    pttOff();
+  }
+}, { passive: false });
+
+// Mouse (desktop)
+pttBtnEl.addEventListener('mousedown', pttOn);
+pttBtnEl.addEventListener('mouseup', pttOff);
+pttBtnEl.addEventListener('mouseleave', pttOff);
 
 // Tasto spazio come PTT da tastiera
 document.addEventListener('keydown', e => { if (e.code === 'Space' && !e.repeat) pttOn(); });
 document.addEventListener('keyup',   e => { if (e.code === 'Space') pttOff(); });
+
+// ---------------------------------------------------------------------------
+// Conference room — canale condiviso tra camere selezionate
+// ---------------------------------------------------------------------------
+let confRoom = null;
+let confTrack = null;
+
+async function joinConference(token) {
+  if (confRoom) await leaveConference();
+  addLog("Entrando in canale conference...", "warn");
+  try {
+    const { Room, RoomEvent } = LivekitClient;
+    confRoom = new Room();
+    confRoom.on(RoomEvent.TrackSubscribed, (track) => {
+      if (track.kind === 'audio') {
+        const el = track.attach();
+        el.style.display = 'none';
+        document.body.appendChild(el);
+      }
+    });
+    await confRoom.connect(lkRoom.url || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/livekit`, token);
+    confTrack = await LivekitClient.createLocalAudioTrack({ echoCancellation: true, noiseSuppression: true });
+    await confRoom.localParticipant.publishTrack(confTrack, { muted: true });
+    // Collega il PTT anche alla conference room
+    localTrack._confTrack = confTrack;
+    addLog("Conference: connesso ✓", "ok");
+    document.getElementById("lkLabel").textContent = "CONF ✓";
+  } catch(e) {
+    addLog("Errore conference: " + e.message, "err");
+  }
+}
+
+async function leaveConference() {
+  if (!confRoom) return;
+  await confRoom.disconnect();
+  confRoom = null;
+  confTrack = null;
+  if (localTrack) localTrack._confTrack = null;
+  addLog("Conference: uscito", "warn");
+  document.getElementById("lkLabel").textContent = "VOCE ✓";
+}
 
 // Visibility change
 document.addEventListener('visibilitychange', async () => {

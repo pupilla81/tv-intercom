@@ -225,19 +225,6 @@ body {
 </head>
 <body>
 
-<!-- Overlay sblocco audio -->
-<div id="audioUnlock" style="
-  position:fixed; inset:0; z-index:999; background:#080b0f;
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
-">
-  <div style="font-size:13px; letter-spacing:4px; color:#00c8ff; text-transform:uppercase">TV Intercom — Regia</div>
-  <button onclick="startRegia()" style="
-    background:#00c8ff; border:none; border-radius:8px; padding:16px 32px;
-    font-family:monospace; font-size:12px; letter-spacing:3px;
-    color:#000; font-weight:bold; cursor:pointer; text-transform:uppercase;
-  ">▶ Entra in regia</button>
-</div>
-
 <div class="header">
   <div class="title">📡 INTERCOM REGIA</div>
   <div class="status">
@@ -288,6 +275,22 @@ body {
         <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:6px;">VOLUME MIC</div>
         <input type="range" class="vol-slider" id="micVolume" min="0" max="100" value="80"
           oninput="setMicVolume(this.value)"/>
+      </div>
+    </div>
+
+    <!-- Conference -->
+    <div class="panel-box">
+      <div class="panel-header">CANALE CONFERENCE</div>
+      <div class="panel-body">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:8px;letter-spacing:1px;">
+          Seleziona camere da includere nel canale condiviso
+        </div>
+        <div id="confCamButtons" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:10px;"></div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="openConference()" style="flex:1;padding:8px;background:var(--surface);border:1px solid var(--green);color:var(--green);border-radius:5px;cursor:pointer;font-family:var(--mono);font-size:10px;letter-spacing:2px;">APRI</button>
+          <button onclick="closeConference()" style="flex:1;padding:8px;background:var(--surface);border:1px solid var(--red);color:var(--red);border-radius:5px;cursor:pointer;font-family:var(--mono);font-size:10px;letter-spacing:2px;">CHIUDI</button>
+        </div>
+        <div id="confStatus" style="font-size:10px;color:var(--muted);margin-top:8px;letter-spacing:1px;"></div>
       </div>
     </div>
 
@@ -429,14 +432,7 @@ async function connectAllRooms() {
       });
 
       room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
-  if (track.kind === 'audio') {
-    // Attacca il track audio a un elemento per la riproduzione
-    const audioEl = track.attach();
-    audioEl.style.display = 'none';
-    document.body.appendChild(audioEl);
-    applyVolumeToParticipant(key, participant);
-    log(`Audio track attaccato da ${participant.identity} in ${key}`, 'ok');
-        }
+        applyVolumeToParticipant(key, participant);
       });
 
       await room.connect(lkUrl, token);
@@ -676,20 +672,140 @@ async function testMic() {
 }
 
 // ---------------------------------------------------------------------------
-// Avvio
+// Conference room
 // ---------------------------------------------------------------------------
-function startRegia() {
-  document.getElementById('audioUnlock').style.display = 'none';
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  ctx.resume().then(() => {
-    ctx.close();
-    init();
-  });
+let confSelectedCams = new Set();
+let confRoomObj = null;
+let confDirectorTrack = null;
+
+function buildConfButtons() {
+  const container = document.getElementById('confCamButtons');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 1; i <= NUM_CAMS; i++) {
+    const btn = document.createElement('button');
+    btn.id = `confCam${i}`;
+    btn.textContent = `C${i}`;
+    btn.style.cssText = 'padding:8px 4px;background:var(--surface);border:1px solid var(--border);border-radius:5px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--muted);transition:all 0.15s;';
+    btn.onclick = () => toggleConfCam(i);
+    container.appendChild(btn);
+  }
 }
 
+function toggleConfCam(camId) {
+  const btn = document.getElementById(`confCam${camId}`);
+  if (confSelectedCams.has(camId)) {
+    confSelectedCams.delete(camId);
+    btn.style.borderColor = 'var(--border)';
+    btn.style.color = 'var(--muted)';
+  } else {
+    confSelectedCams.add(camId);
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = 'var(--accent)';
+  }
+}
+
+async function openConference() {
+  if (confSelectedCams.size < 1) {
+    log('Seleziona almeno una camera', 'warn');
+    return;
+  }
+
+  // Crea la conference room sul server
+  try {
+    const resp = await fetch(`${SERVER}/api/livekit/conference/open`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cameras: [...confSelectedCams]})
+    });
+    const data = await resp.json();
+
+    // Connetti la regia alla conference room
+    const { Room, RoomEvent } = LivekitClient;
+    confRoomObj = new Room();
+
+    confRoomObj.on(RoomEvent.TrackSubscribed, (track) => {
+      if (track.kind === 'audio') {
+        const el = track.attach();
+        el.style.display = 'none';
+        document.body.appendChild(el);
+      }
+    });
+
+    confRoomObj.on(RoomEvent.ParticipantConnected, (p) => {
+      log(`Conference: ${p.identity} entrato`, 'ok');
+    });
+
+    await confRoomObj.connect(data.url, data.director_token);
+
+    // Pubblica mic regia in conference
+    confDirectorTrack = await LivekitClient.createLocalAudioTrack({echoCancellation: true, noiseSuppression: true});
+    await confRoomObj.localParticipant.publishTrack(confDirectorTrack, {muted: true});
+
+    // Aggiorna stato
+    const camList = [...confSelectedCams].map(c => `CAM${c}`).join(', ');
+    document.getElementById('confStatus').textContent = `APERTO: ${camList}`;
+    document.getElementById('confStatus').style.color = 'var(--green)';
+    log(`Conference aperta: ${camList}`, 'ok');
+
+    // Aggiorna i token delle camere nel local track dict
+    // così il mic della regia in conference segue il PTT
+    data.camera_tokens.forEach(({cam_id, token}) => {
+      const key = `cam${cam_id}`;
+      if (localTracks[key]) {
+        localTracks[key]._confTrack = confDirectorTrack;
+      }
+    });
+
+  } catch(e) {
+    log('Errore conference: ' + e.message, 'err');
+  }
+}
+
+async function closeConference() {
+  if (!confRoomObj) return;
+  // Notifica server di chiudere
+  await fetch(`${SERVER}/api/livekit/conference/close`, {method: 'POST'});
+  await confRoomObj.disconnect();
+  confRoomObj = null;
+  confDirectorTrack = null;
+  // Rimuovi confTrack dai localTracks
+  Object.values(localTracks).forEach(t => { if (t) t._confTrack = null; });
+  document.getElementById('confStatus').textContent = 'CHIUSO';
+  document.getElementById('confStatus').style.color = 'var(--muted)';
+  log('Conference chiusa', 'warn');
+  confSelectedCams.forEach(i => {
+    const btn = document.getElementById(`confCam${i}`);
+    if (btn) { btn.style.borderColor = 'var(--border)'; btn.style.color = 'var(--muted)'; }
+  });
+  confSelectedCams.clear();
+}
+
+// Override activateChannel per includere conference track
+const _origActivate = activateChannel;
+activateChannel = async function(camKey) {
+  await _origActivate(camKey);
+  // Se in conference, sblocca anche il confDirectorTrack
+  if (confDirectorTrack && confRoomObj) {
+    confDirectorTrack.unmute();
+  }
+};
+
+const _origDeactivate = deactivateChannel;
+deactivateChannel = async function(camKey) {
+  await _origDeactivate(camKey);
+  // Rimuta conference solo se nessun canale attivo
+  if (confDirectorTrack && activeChannels.size === 0) {
+    confDirectorTrack.mute();
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Avvio
+// ---------------------------------------------------------------------------
 buildMatrix();
-// init() viene chiamata da startRegia()
+buildConfButtons();
+init();
 </script>
 </body>
 </html>
