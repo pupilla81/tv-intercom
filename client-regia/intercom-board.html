@@ -695,7 +695,8 @@ function setMicVolume(val) {
       // LiveKit non espone gain direttamente — usiamo AudioContext
       if (!track._gainNode) {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const src = ctx.createMediaStreamTrackSource(track.mediaStreamTrack);
+        const stream = new MediaStream([track.mediaStreamTrack]);
+        const src = ctx.createMediaStreamSource(stream);
         const gain = ctx.createGain();
         src.connect(gain);
         gain.connect(ctx.destination);
@@ -772,7 +773,8 @@ let vuInterval = null;
 function startMicMeter(track) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const src = ctx.createMediaStreamTrackSource(track.mediaStreamTrack);
+    const stream = new MediaStream([track.mediaStreamTrack]);
+    const src = ctx.createMediaStreamSource(stream);
     vuAnalyzer = ctx.createAnalyser();
     vuAnalyzer.fftSize = 256;
     src.connect(vuAnalyzer);
