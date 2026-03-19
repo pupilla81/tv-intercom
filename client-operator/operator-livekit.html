@@ -173,12 +173,6 @@ async function unlock() {
     navigator.mediaSession.playbackState = 'playing';
     navigator.mediaSession.setActionHandler('play', () => document.getElementById("silentAudio").play());
     navigator.mediaSession.setActionHandler('pause', () => document.getElementById("silentAudio").play());
-    navigator.mediaSession.setActionHandler('previoustrack', () => {
-    pttTap(); // tasto 1 — PTT/Latch
-    });
-    navigator.mediaSession.setActionHandler('nexttrack', () => {
-    requestReplay(); // tasto 2 — Replay ultima istruzione
-    });
   }
   // Wake Lock
   if ('wakeLock' in navigator) {
@@ -416,9 +410,86 @@ pttBtnEl.addEventListener('mousedown', pttOn);
 pttBtnEl.addEventListener('mouseup', pttOff);
 pttBtnEl.addEventListener('mouseleave', pttOff);
 
-// Tasto spazio come PTT da tastiera
+// Tasto spazio come PTT da tastiera (desktop)
 document.addEventListener('keydown', e => { if (e.code === 'Space' && !e.repeat) pttOn(); });
 document.addEventListener('keyup',   e => { if (e.code === 'Space') pttOff(); });
+
+// ---------------------------------------------------------------------------
+// Tasto Bluetooth — Enter (tasto piccolo shutter)
+// Tap singolo  → PTT toggle (apre/chiude mic)
+// Doppio tap   → attiva/disattiva Latch
+// Tap lungo    → Replay ultima istruzione
+// ---------------------------------------------------------------------------
+let btPressTime   = 0;
+let btTapCount    = 0;
+let btTapTimer    = null;
+let btPttOpen     = false;
+const BT_LONG_MS  = 800;   // soglia tap lungo
+const BT_DTAP_MS  = 350;   // finestra doppio tap
+
+document.addEventListener('keydown', e => {
+  if (e.code !== 'Enter' || e.repeat) return;
+  e.preventDefault();
+  btPressTime = Date.now();
+});
+
+document.addEventListener('keyup', e => {
+  if (e.code !== 'Enter') return;
+  e.preventDefault();
+
+  const held = Date.now() - btPressTime;
+
+  // Tap lungo — Replay
+  if (held >= BT_LONG_MS) {
+    addLog("BT: tap lungo → Replay", "warn");
+    requestReplay();
+    btTapCount = 0;
+    if (btTapTimer) clearTimeout(btTapTimer);
+    return;
+  }
+
+  // Tap corto — conta i tap
+  btTapCount++;
+  if (btTapTimer) clearTimeout(btTapTimer);
+
+  btTapTimer = setTimeout(() => {
+    if (btTapCount === 1) {
+      // Tap singolo — PTT toggle
+      if (!latchMode) {
+        if (btPttOpen) {
+          pttOff();
+          btPttOpen = false;
+          addLog("BT: tap → PTT OFF", "");
+        } else {
+          pttOn();
+          btPttOpen = true;
+          addLog("BT: tap → PTT ON", "warn");
+        }
+      } else {
+        // In latch mode — toggle mic
+        pttTap();
+        addLog("BT: tap → Latch toggle", "warn");
+      }
+    } else if (btTapCount >= 2) {
+      // Doppio tap — toggle latch mode
+      if (latchMode) {
+        // Disattiva latch
+        latchMode = false;
+        latchActive = false;
+        localTrack?.mute();
+        btPttOpen = false;
+        document.getElementById("pttBtn").classList.remove("active");
+        document.getElementById("pttBtn").style.borderColor = '';
+        document.getElementById("pttLabel").textContent = "TIENI PER PARLARE";
+        addLog("BT: doppio tap → Latch OFF", "warn");
+      } else {
+        enableLatch();
+        addLog("BT: doppio tap → Latch ON", "warn");
+      }
+    }
+    btTapCount = 0;
+  }, BT_DTAP_MS);
+});
 
 // ---------------------------------------------------------------------------
 // Conference room — canale condiviso tra camere selezionate
