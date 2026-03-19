@@ -299,6 +299,8 @@ async function connectLiveKit() {
       echoCancellation: true, noiseSuppression: true,
     });
     await lkRoom.localParticipant.publishTrack(localTrack, { muted: true });
+    // Muto esplicito — publishTrack muted:true non sempre sufficiente su tutti i browser
+    await localTrack.mute();
     addLog("Microfono pronto — PTT attivo", "ok");
 
   } catch(e) {

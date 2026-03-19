@@ -217,6 +217,10 @@ body {
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
 @keyframes blink  { 0%,100%{opacity:1} 50%{opacity:0.2} }
 @keyframes speaking-pulse { 0%,100%{box-shadow:0 0 16px rgba(255,149,0,0.3)} 50%{box-shadow:0 0 30px rgba(255,149,0,0.6)} }
+.vu-meter { width:100%; height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-top:8px; }
+.vu-bar { height:100%; width:0%; background:var(--green); border-radius:3px; transition:width 0.05s; }
+.vu-bar.warn { background:var(--orange); }
+.vu-bar.peak { background:var(--red); }
 
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: var(--surface); }
@@ -288,6 +292,8 @@ body {
         <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:6px;">VOLUME MIC</div>
         <input type="range" class="vol-slider" id="micVolume" min="0" max="100" value="80"
           oninput="setMicVolume(this.value)"/>
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-top:10px;margin-bottom:4px;">LIVELLO MIC</div>
+        <div class="vu-meter"><div class="vu-bar" id="vuBar"></div></div>
       </div>
     </div>
 
@@ -375,7 +381,7 @@ function buildMatrix() {
         ontouchstart="handleTouch(event,${i},'down')" ontouchend="handleTouch(event,${i},'up')">
         <div class="speak-dot" id="speakDot${i}"></div>
         <div class="cam-num">CAM ${i}</div>
-        <div class="cam-state" id="camState${i}">STANDBY</div>
+        <div class="cam-state" id="camState${i}">OFFLINE</div>
       </button>
       <input type="range" class="vol-slider" id="vol${i}" min="0" max="100" value="100"
         oninput="setCamVolume(${i}, this.value)" title="Volume CAM ${i}"/>
@@ -436,10 +442,23 @@ async function connectAllRooms() {
         updateConnectionStatus();
       });
 
-      // Imposta volume per ogni partecipante remoto
+      // Traccia connessione/disconnessione operatori
       room.on(RoomEvent.ParticipantConnected, (participant) => {
         log(`${participant.identity} connesso a ${key}`, 'info');
         applyVolumeToParticipant(key, participant);
+        // Aggiorna indicatore camera se è un operatore
+        if (key.startsWith('cam') && participant.identity.startsWith('cam')) {
+          const camId = parseInt(key.replace('cam', ''));
+          updateCamOnline(camId, true);
+        }
+      });
+
+      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+        log(`${participant.identity} disconnesso da ${key}`, 'warn');
+        if (key.startsWith('cam') && participant.identity.startsWith('cam')) {
+          const camId = parseInt(key.replace('cam', ''));
+          updateCamOnline(camId, false);
+        }
       });
 
       room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
@@ -455,6 +474,14 @@ async function connectAllRooms() {
 
       await room.connect(lkUrl, token);
 
+      // Controlla partecipanti già presenti (operatore connesso prima della regia)
+      if (key.startsWith('cam')) {
+        const camId = parseInt(key.replace('cam', ''));
+        room.remoteParticipants.forEach(p => {
+          if (p.identity.startsWith('cam')) updateCamOnline(camId, true);
+        });
+      }
+
       // Entra in room cam con mic MUTATO di default
       if (key !== 'general') {
         const track = await LivekitClient.createLocalAudioTrack({
@@ -464,6 +491,8 @@ async function connectAllRooms() {
         // Muta esplicitamente — publishTrack muted:true non sempre sufficiente
         await track.mute();
         localTracks[key] = track;
+        // Avvia VU meter sulla prima room cam
+        if (Object.keys(localTracks).length === 1) startMicMeter(track);
         log(`Track audio pubblicato (muto) in ${key}`, 'ok');
       }
 
@@ -498,6 +527,25 @@ function updateConnectionStatus() {
   } else {
     dot.className = 'dot';
     status.textContent = `${connected}/${total} ROOM`;
+  }
+}
+
+function updateCamOnline(camId, online) {
+  const btn = document.getElementById(`camBtn${camId}`);
+  const stateEl = document.getElementById(`camState${camId}`);
+  if (!btn) return;
+  if (online) {
+    btn.style.borderColor = 'var(--green)';
+    if (stateEl && stateEl.textContent === 'OFFLINE') {
+      stateEl.textContent = 'ONLINE';
+      stateEl.style.color = 'var(--green)';
+    }
+  } else {
+    btn.style.borderColor = '';
+    if (stateEl) {
+      stateEl.textContent = 'OFFLINE';
+      stateEl.style.color = 'var(--muted)';
+    }
   }
 }
 
@@ -641,6 +689,22 @@ function toggleMute(camId) {
 
 function setMicVolume(val) {
   micVolume = val / 100;
+  // Applica il volume a tutti i track locali attivi
+  Object.values(localTracks).forEach(track => {
+    if (track && track.mediaStreamTrack) {
+      // LiveKit non espone gain direttamente — usiamo AudioContext
+      if (!track._gainNode) {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const src = ctx.createMediaStreamTrackSource(track.mediaStreamTrack);
+        const gain = ctx.createGain();
+        src.connect(gain);
+        gain.connect(ctx.destination);
+        track._gainNode = gain;
+        track._gainCtx = ctx;
+      }
+      track._gainNode.gain.value = micVolume;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -697,6 +761,33 @@ async function testMic() {
   } catch(e) {
     log('Microfono non disponibile: ' + e.message, 'err');
   }
+}
+
+// ---------------------------------------------------------------------------
+// VU Meter mic regia
+// ---------------------------------------------------------------------------
+let vuAnalyzer = null;
+let vuInterval = null;
+
+function startMicMeter(track) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ctx.createMediaStreamTrackSource(track.mediaStreamTrack);
+    vuAnalyzer = ctx.createAnalyser();
+    vuAnalyzer.fftSize = 256;
+    src.connect(vuAnalyzer);
+    const data = new Uint8Array(vuAnalyzer.frequencyBinCount);
+    const bar = document.getElementById('vuBar');
+    if (vuInterval) clearInterval(vuInterval);
+    vuInterval = setInterval(() => {
+      if (!vuAnalyzer || !bar) return;
+      vuAnalyzer.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      const pct = Math.min(100, avg * 2);
+      bar.style.width = pct + '%';
+      bar.className = 'vu-bar' + (pct > 80 ? ' peak' : pct > 60 ? ' warn' : '');
+    }, 50);
+  } catch(e) {}
 }
 
 // ---------------------------------------------------------------------------
