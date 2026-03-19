@@ -173,6 +173,12 @@ async function unlock() {
     navigator.mediaSession.playbackState = 'playing';
     navigator.mediaSession.setActionHandler('play', () => document.getElementById("silentAudio").play());
     navigator.mediaSession.setActionHandler('pause', () => document.getElementById("silentAudio").play());
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+    pttTap(); // tasto 1 — PTT/Latch
+    });
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+    requestReplay(); // tasto 2 — Replay ultima istruzione
+    });
   }
   // Wake Lock
   if ('wakeLock' in navigator) {
