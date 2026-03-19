@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BT Key Test</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a0a; color:#e0e0e0; font-family:monospace; padding:20px; }
+h2 { font-size:14px; letter-spacing:3px; color:#00A8FF; margin-bottom:16px; }
+.event { padding:8px 12px; margin-bottom:6px; border-radius:4px; font-size:12px; }
+.event.key { background:#141414; border-left:3px solid #00E676; }
+.event.media { background:#141414; border-left:3px solid #FF6B00; }
+.event.vol { background:#141414; border-left:3px solid #FF1744; }
+#log { margin-top:16px; }
+audio { display:none; }
+button { background:#00A8FF; border:none; border-radius:8px; padding:14px 24px; color:#fff; font-family:monospace; font-size:12px; letter-spacing:2px; cursor:pointer; margin-bottom:16px; width:100%; }
+</style>
+</head>
+<body>
+<h2>🎮 BLUETOOTH KEY TEST</h2>
+<p style="font-size:11px;color:#555;margin-bottom:16px;">Premi START poi premi i tasti del telecomando BT. Tutti gli eventi vengono registrati.</p>
+<button onclick="start()">START — Abilita audio e intercettazione</button>
+<div id="status" style="font-size:11px;color:#555;margin-bottom:12px;">In attesa...</div>
+<div id="log"></div>
+<audio id="sa" loop src="/operator/silent.mp3"></audio>
+
+<script>
+let started = false;
+
+function log(msg, type = 'key') {
+  const d = document.getElementById('log');
+  const t = new Date().toLocaleTimeString('it-IT');
+  const el = document.createElement('div');
+  el.className = 'event ' + type;
+  el.textContent = `[${t}] ${msg}`;
+  d.prepend(el);
+  if (d.children.length > 30) d.removeChild(d.lastChild);
+}
+
+function start() {
+  document.getElementById('sa').play().catch(()=>{});
+  document.getElementById('status').textContent = '✓ Attivo — premi i tasti BT';
+  document.getElementById('status').style.color = '#00E676';
+  started = true;
+
+  // MediaSession
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: 'BT Test' });
+    navigator.mediaSession.playbackState = 'playing';
+    ['play','pause','stop','previoustrack','nexttrack','seekforward','seekbackward'].forEach(action => {
+      try {
+        navigator.mediaSession.setActionHandler(action, () => {
+          log(`MediaSession: ${action}`, 'media');
+        });
+      } catch(e) {}
+    });
+  }
+}
+
+// Keyboard events
+document.addEventListener('keydown', e => {
+  log(`keydown: key="${e.key}" code="${e.code}" keyCode=${e.keyCode}`, 'key');
+  e.preventDefault();
+});
+document.addEventListener('keyup', e => {
+  log(`keyup: key="${e.key}" code="${e.code}"`, 'key');
+});
+
+// Volume change (se il browser lo espone)
+window.addEventListener('volumechange', e => {
+  log(`volumechange event`, 'vol');
+});
+
+// Visibilità
+document.addEventListener('visibilitychange', () => {
+  log(`visibilitychange: ${document.visibilityState}`, 'vol');
+});
+</script>
+</body>
+</html>
