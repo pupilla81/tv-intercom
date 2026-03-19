@@ -453,39 +453,21 @@ document.addEventListener('keyup', e => {
   if (btTapTimer) clearTimeout(btTapTimer);
 
   btTapTimer = setTimeout(() => {
-    if (btTapCount === 1) {
-      // Tap singolo — PTT toggle
-      if (!latchMode) {
-        if (btPttOpen) {
-          pttOff();
-          btPttOpen = false;
-          addLog("BT: tap → PTT OFF", "");
-        } else {
-          pttOn();
-          btPttOpen = true;
-          addLog("BT: tap → PTT ON", "warn");
-        }
-      } else {
-        // In latch mode — toggle mic
-        pttTap();
-        addLog("BT: tap → Latch toggle", "warn");
-      }
-    } else if (btTapCount >= 2) {
-      // Doppio tap — toggle latch mode
-      if (latchMode) {
-        // Disattiva latch
-        latchMode = false;
-        latchActive = false;
-        localTrack?.mute();
+    // Tap singolo — PTT toggle (doppio tap ignorato sul BT)
+    if (!latchMode) {
+      if (btPttOpen) {
+        pttOff();
         btPttOpen = false;
-        document.getElementById("pttBtn").classList.remove("active");
-        document.getElementById("pttBtn").style.borderColor = '';
-        document.getElementById("pttLabel").textContent = "TIENI PER PARLARE";
-        addLog("BT: doppio tap → Latch OFF", "warn");
+        addLog("BT: tap → PTT OFF", "");
       } else {
-        enableLatch();
-        addLog("BT: doppio tap → Latch ON", "warn");
+        pttOn();
+        btPttOpen = true;
+        addLog("BT: tap → PTT ON", "warn");
       }
+    } else {
+      // In latch mode — toggle mic
+      pttTap();
+      addLog("BT: tap → Latch toggle", "warn");
     }
     btTapCount = 0;
   }, BT_DTAP_MS);
