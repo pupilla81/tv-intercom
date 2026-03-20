@@ -2,9 +2,6 @@
 
 Sistema modulare per la comunicazione automatica e manuale tra regia e operatori camera durante eventi televisivi in esterna.
 
-**VPS:** Hetzner CCX13 — `https://tvintercom.duckdns.org`
-**Branch attivo:** `feature/webrtc-livekit`
-
 ---
 
 ## Stato del progetto
