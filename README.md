@@ -2,17 +2,40 @@
 
 Sistema modulare per la comunicazione automatica e manuale tra regia e operatori camera durante eventi televisivi in esterna.
 
+**VPS:** Hetzner CCX13 — `https://tvintercom.duckdns.org`
+**Branch attivo:** `feature/webrtc-livekit`
+
+---
+
 ## Stato del progetto
 
 | Modulo | Stato |
 |---|---|
-| `docs/` — Architettura e specifiche | ✅ Pronto |
+| `server/main.py` — Hub FastAPI centrale | ✅ Pronto |
+| `server/tts_engine.py` — TTS ElevenLabs con cache | ✅ Pronto |
+| `server/livekit_manager.py` — Token e room LiveKit | ✅ Pronto |
 | `script-parser/` — Parser copione + Cue Engine | ✅ Pronto |
-| `stt-tracker/` — Ascolto audio + tracking copione | 🔲 Da sviluppare |
-| `dispatcher/` — Invio istruzioni ai canali | 🔲 Da sviluppare |
-| `server/` — Backend VPS | 🔲 Da sviluppare |
-| `client-operator/` — App web operatore | 🔲 Da sviluppare |
-| `client-regia/` — Pannello regia | ⚙️ Prototipo disponibile |
+| `stt-tracker/stt_deepgram.py` — STT streaming ~2s | ✅ Pronto |
+| `stt-tracker/stt_tracker.py` — STT Whisper (fallback) | ✅ Pronto |
+| `client-operator/index.html` — PWA istruzioni operatore | ✅ Pronto |
+| `client-operator/operator-livekit.html` — PWA voce LiveKit | ✅ Pronto |
+| `client-regia/intercom-board.html` — Pannello regia LiveKit | ✅ Pronto |
+| `client-regia/dashboard.html` — Control Room dashboard | ✅ Pronto |
+| `tools/doc_to_script.py` — Convertitore copione testo→JSON | ✅ Pronto |
+
+---
+
+## URL sistema
+
+| URL | Descrizione |
+|---|---|
+| `https://tvintercom.duckdns.org/` | Dashboard Control Room |
+| `https://tvintercom.duckdns.org/docs` | API docs (FastAPI) |
+| `https://tvintercom.duckdns.org/regia/intercom-board.html` | Pannello regia LiveKit |
+| `https://tvintercom.duckdns.org/operator/?cam=N` | PWA istruzioni CAM N |
+| `https://tvintercom.duckdns.org/operator/operator-livekit.html?cam=N` | PWA voce CAM N |
+
+---
 
 ## Quick Start
 
@@ -20,12 +43,34 @@ Sistema modulare per la comunicazione automatica e manuale tra regia e operatori
 # Installare dipendenze Python
 pip install -r requirements.txt
 
-# Testare il parser del copione
-cd script-parser
-python cue_engine.py
+# Avviare il server in locale
+uvicorn server.main:app --host 0.0.0.0 --port 8080 --reload
+
+# Avviare STT (su macchina con microfono)
+python stt-tracker/stt_deepgram.py --device 7 --server https://tvintercom.duckdns.org
+
+# Convertire copione da testo
+python tools/doc_to_script.py --input copione.txt --title "Nome spettacolo"
 ```
+
+---
+
+## Deploy VPS
+
+```bash
+# Aggiorna e riavvia
+cd ~/tv-intercom && git pull && systemctl restart tv-intercom
+
+# Log in tempo reale
+journalctl -u tv-intercom -f
+journalctl -u livekit -f
+```
+
+---
 
 ## Documentazione
 
-- [`docs/architettura.md`](docs/architettura.md) — Decisioni architetturali fissate
-- [`docs/cue-format.md`](docs/cue-format.md) — Formato del copione e dei cue
+- [`CHANGELOG.md`](CHANGELOG.md) — Storico modifiche
+- [`TV_INTERCOM_ARCHITETTURA.md`](TV_INTERCOM_ARCHITETTURA.md) — Architettura dettagliata e stato funzionalità
+- [`docs/cue-format.md`](docs/cue-format.md) — Formato copione e cue
+- [`docs/avvio-deploy.md`](docs/avvio-deploy.md) — Istruzioni sviluppo locale e VPS

@@ -5,6 +5,22 @@ Formato: `[versione] - data - descrizione`
 
 ---
 
+## [0.8.0] - 2026-03-20 — Nuova Dashboard Control Room
+
+### Aggiunto
+- `client-regia/dashboard.html` — nuova dashboard operativa completa, sostituisce la vecchia pagina di test/utility in `tools/`. Tre tab:
+  - **HOME**: stat card (uptime, camere online, cue totali/scattati, copione), camera grid con stato ONLINE/OFFLINE in tempo reale, caricamento copione da path JSON o testo libero (conversione automatica via `/api/script/convert`), controlli STT (selezione device e engine, start/stop, rilevamento dispositivi), engine reset, log eventi WebSocket con fallback polling a 10s
+  - **PROMPTER**: testo copione con cue inline cliccabili (verde=auto, ambra=manuale, click=fire immediato), cue sheet laterale con pulsante FIRE per ogni cue, navigatori per scena, scroll automatico al prossimo cue non scattato, badge tab con cue rimanenti
+  - **TTS CONFIG**: griglia voci ElevenLabs con selezione, slider parametri (stability, similarity boost, style exaggeration, speaker boost), test audio in-page, rigenerazione singolo cue da testo
+
+### Modificato
+- `server/main.py` — route `/` aggiornata: dashboard servita da `client-regia/dashboard.html` invece di `tools/dashboard.html`
+
+### Rimosso
+- `tools/dashboard.html` — vecchia pagina di test/utility
+
+---
+
 ## [0.7.0] - 2026-03-18 — PWA Audio Background + HTTPS
 
 ### Risolto
@@ -185,9 +201,11 @@ git pull && systemctl restart tv-intercom  # aggiorna e riavvia
 
 ## Prossimi passi pianificati
 
-- [ ] Discord Bot — layer audio nativo come alternativa/backup alla PWA
-- [ ] Dashboard regia completa con pannello cue e controlli
-- [ ] Editor visuale copione nella dashboard
+- [ ] Merge branch `feature/webrtc-livekit` → `main`
+- [ ] Config TTS lato server (salvataggio persistente voce e parametri)
+- [ ] Dashboard: miglioramenti post primo test live
+- [ ] Gestione atti/scene: caricamento segmenti, selezione scena attiva
+- [ ] VU meter mic nella PWA operatore
+- [ ] Feedback visivo livello mic operatore
 - [ ] App nativa Android (Capacitor) per massima affidabilità
 - [ ] Test iOS con TestFlight
-- [ ] Deploy definitivo con dominio personalizzato
