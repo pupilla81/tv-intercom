@@ -60,6 +60,29 @@ body::before {
 .hdr-clock { font-size:17px; letter-spacing:3px; color:var(--amber); }
 .hdr-date  { font-size:9px; letter-spacing:2px; color:var(--muted); text-align:right; }
 
+/* ─── CAMERA BAR ─── */
+.cambar {
+  display:flex; align-items:center; gap:6px;
+  height:34px; min-height:34px; flex-shrink:0;
+  padding:0 18px; background:var(--bg2);
+  border-bottom:1px solid var(--border2);
+}
+.cambar-lbl { font-size:8px; letter-spacing:3px; color:var(--muted); text-transform:uppercase; margin-right:4px; }
+.cbpill {
+  display:flex; align-items:center; gap:5px;
+  padding:3px 10px; border-radius:2px;
+  border:1px solid var(--border); background:var(--surface);
+  font-size:9px; letter-spacing:2px; color:var(--muted);
+  transition:all .2s;
+}
+.cbpill.online {
+  border-color:var(--green); color:var(--green);
+  background:var(--green-dim); box-shadow:0 0 6px rgba(0,232,122,0.15);
+}
+.cbpill .cbdot { width:5px; height:5px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+.cbpill.online .cbdot { background:var(--green); box-shadow:0 0 4px var(--green); }
+.cambar-sep { flex:1; }
+
 /* ─── TABS ─── */
 .tabs {
   display:flex; background:var(--bg2); border-bottom:1px solid var(--border2);
@@ -359,6 +382,14 @@ input[type=range].sl::-webkit-slider-thumb {
   </div>
 </div>
 
+<!-- CAMERA BAR -->
+<div class="cambar" id="camBar">
+  <span class="cambar-lbl">Camere</span>
+  <!-- filled by JS -->
+  <div class="cambar-sep"></div>
+  <button class="btn" style="padding:3px 12px;font-size:8px;" onclick="window.open('/regia/intercom-board.html','_blank')">📡 APRI INTERCOM ↗</button>
+</div>
+
 <!-- TABS -->
 <div class="tabs">
   <button class="tab active" id="tab-home" onclick="sw('home')">HOME</button>
@@ -366,7 +397,7 @@ input[type=range].sl::-webkit-slider-thumb {
 </div>
 
 <!-- ══ TAB HOME ══ -->
-<div class="tpane active" id="pane-home" style="height:calc(100vh - 88px);">
+<div class="tpane active" id="pane-home" style="height:calc(100vh - 122px);">
 <div class="home-grid" style="height:100%;">
 
   <!-- COL 1 -->
@@ -481,7 +512,7 @@ input[type=range].sl::-webkit-slider-thumb {
 </div>
 
 <!-- ══ TAB PROMPTER ══ -->
-<div class="tpane" id="pane-prompter" style="height:calc(100vh - 88px);">
+<div class="tpane" id="pane-prompter" style="height:calc(100vh - 122px);">
 <div class="prompter-grid">
 
   <div class="script-view">
@@ -664,8 +695,9 @@ function updateUI() {
   updateCams();
 }
 
-/* ══ CAM GRID ══ */
+/* ══ CAM GRID + CAM BAR ══ */
 function buildCamGrid() {
+  // Home tile grid
   const g = document.getElementById('camGrid');
   for(let i=1;i<=5;i++) g.innerHTML += `
     <div class="ctile" id="ct-${i}">
@@ -673,13 +705,27 @@ function buildCamGrid() {
       <div class="ct-st" id="ct-st-${i}">OFFLINE</div>
       <div class="ct-cue" id="ct-cue-${i}">—</div>
     </div>`;
+  // Cambar pills — inseriti prima del separatore
+  const bar = document.getElementById('camBar');
+  const sep = bar.querySelector('.cambar-sep');
+  for(let i=1;i<=5;i++) {
+    const pill = document.createElement('div');
+    pill.className = 'cbpill';
+    pill.id = `cb-${i}`;
+    pill.innerHTML = `<span class="cbdot"></span>CAM ${i}`;
+    bar.insertBefore(pill, sep);
+  }
 }
 function updateCams() {
   for(let i=1;i<=5;i++) {
-    const t=document.getElementById(`ct-${i}`), s=document.getElementById(`ct-st-${i}`);
-    if(!t) continue;
-    if(camsOnline.has(i)) { t.classList.add('online'); s.textContent='ONLINE'; }
-    else { t.classList.remove('online'); s.textContent='OFFLINE'; }
+    const online = camsOnline.has(i);
+    // Home grid tile
+    const t = document.getElementById(`ct-${i}`);
+    const s = document.getElementById(`ct-st-${i}`);
+    if(t) { t.classList.toggle('online', online); if(s) s.textContent = online?'ONLINE':'OFFLINE'; }
+    // Cambar pill
+    const pill = document.getElementById(`cb-${i}`);
+    if(pill) pill.classList.toggle('online', online);
   }
 }
 

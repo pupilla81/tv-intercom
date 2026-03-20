@@ -2,9 +2,6 @@
 
 Sistema modulare per la comunicazione automatica e manuale tra regia e operatori camera durante eventi televisivi in esterna.
 
-**VPS:** Hetzner CCX13 — `https://tvintercom.duckdns.org`
-**Branch attivo:** `feature/webrtc-livekit`
-
 ---
 
 ## Stato del progetto
@@ -22,18 +19,6 @@ Sistema modulare per la comunicazione automatica e manuale tra regia e operatori
 | `client-regia/intercom-board.html` — Pannello regia LiveKit | ✅ Pronto |
 | `client-regia/dashboard.html` — Control Room dashboard | ✅ Pronto |
 | `tools/doc_to_script.py` — Convertitore copione testo→JSON | ✅ Pronto |
-
----
-
-## URL sistema
-
-| URL | Descrizione |
-|---|---|
-| `https://tvintercom.duckdns.org/` | Dashboard Control Room |
-| `https://tvintercom.duckdns.org/docs` | API docs (FastAPI) |
-| `https://tvintercom.duckdns.org/regia/intercom-board.html` | Pannello regia LiveKit |
-| `https://tvintercom.duckdns.org/operator/?cam=N` | PWA istruzioni CAM N |
-| `https://tvintercom.duckdns.org/operator/operator-livekit.html?cam=N` | PWA voce CAM N |
 
 ---
 
