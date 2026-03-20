@@ -12,6 +12,7 @@ Avvio:
 import asyncio
 import json
 import logging
+import re
 import sys
 import time
 from pathlib import Path
@@ -237,15 +238,24 @@ async def api_scripts():
 
 @app.get("/api/script/download")
 async def api_script_download():
-    """Scarica il file script.json corrente."""
+    """Scarica il file JSON del copione attualmente caricato."""
     from fastapi.responses import FileResponse
-    script_path = Path(__file__).parent.parent / "script-parser" / "script.json"
+    if not state.script_loaded or not state.metadata:
+        raise HTTPException(status_code=404, detail="Nessun copione attivo")
+    title = state.metadata.get("title", "copione")
+    safe_name = re.sub(r'[^\w\s-]', '', title).strip()
+    safe_name = re.sub(r'[\s-]+', '_', safe_name).lower() or "copione"
+    script_dir = Path(__file__).parent.parent / "script-parser"
+    # Cerca prima il file con nome titolo, poi script.json come fallback
+    script_path = script_dir / f"{safe_name}.json"
     if not script_path.exists():
-        raise HTTPException(status_code=404, detail="Nessun copione attivo (script.json non trovato)")
+        script_path = script_dir / "script.json"
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail="File copione non trovato su disco")
     return FileResponse(
         str(script_path),
         media_type="application/json",
-        filename="copione.json",
+        filename=f"{safe_name}.json",
     )
 
 
@@ -571,8 +581,15 @@ async def api_script_convert(req: ConvertScriptRequest):
         from doc_to_script import parse_script
         script = parse_script(req.text, req.title, req.date, req.location)
 
-        # Salva il file
-        script_path = Path(__file__).parent.parent / "script-parser" / "script.json"
+        # Nome file dal titolo: "Passio Jesu Christi" → "passio_jesu_christi.json"
+        title = script.get("metadata", {}).get("title", "copione")
+        safe_name = re.sub(r'[^\w\s-]', '', title).strip()
+        safe_name = re.sub(r'[\s-]+', '_', safe_name).lower()
+        if not safe_name:
+            safe_name = "copione"
+        script_dir = Path(__file__).parent.parent / "script-parser"
+        script_path = script_dir / f"{safe_name}.json"
+
         script_path.write_text(
             json.dumps(script, indent=2, ensure_ascii=False),
             encoding="utf-8"
