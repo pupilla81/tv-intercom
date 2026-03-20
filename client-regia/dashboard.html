@@ -82,6 +82,32 @@ body::before {
 .cbpill .cbdot { width:5px; height:5px; border-radius:50%; background:var(--muted); flex-shrink:0; }
 .cbpill.online .cbdot { background:var(--green); box-shadow:0 0 4px var(--green); }
 .cambar-sep { flex:1; }
+.cbpill { cursor:pointer; transition:all .1s; }
+.cbpill.tx {
+  border-color:var(--amber); color:var(--amber);
+  background:var(--amber-dim); box-shadow:0 0 10px var(--amber-glow);
+  animation:ptt-pulse .5s infinite;
+}
+.cbpill.tx .cbdot { background:var(--amber); box-shadow:0 0 5px var(--amber); }
+.cbpill.latch-ready {
+  border-color:var(--blue); color:var(--blue);
+  background:var(--blue-dim);
+}
+.cbpill.latch-ready .cbdot { background:var(--blue); }
+
+.ptt-mode-btn {
+  padding:3px 10px; border-radius:2px; cursor:pointer;
+  font-family:var(--mono); font-size:8px; letter-spacing:2px;
+  border:1px solid var(--border2); background:var(--surface);
+  color:var(--muted); transition:all .12s; text-transform:uppercase;
+}
+.ptt-mode-btn.active { border-color:var(--amber); color:var(--amber); background:var(--amber-dim); }
+
+.lk-led { width:5px; height:5px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+.lk-led.on { background:var(--green); box-shadow:0 0 4px var(--green); }
+.lk-led.tx { background:var(--amber); box-shadow:0 0 6px var(--amber); animation:ptt-pulse .5s infinite; }
+
+@keyframes ptt-pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
 
 /* ─── TABS ─── */
 .tabs {
@@ -385,9 +411,17 @@ input[type=range].sl::-webkit-slider-thumb {
 <!-- CAMERA BAR -->
 <div class="cambar" id="camBar">
   <span class="cambar-lbl">Camere</span>
-  <!-- filled by JS -->
+  <!-- cam pills filled by JS -->
   <div class="cambar-sep"></div>
-  <button class="btn" style="padding:3px 12px;font-size:8px;" onclick="window.open('/regia/intercom-board.html','_blank')">📡 APRI INTERCOM ↗</button>
+  <div style="display:flex;align-items:center;gap:4px;font-size:8px;letter-spacing:1px;color:var(--muted);">
+    <div class="lk-led" id="lk-led"></div>
+    <span id="lk-lbl">VOCE</span>
+  </div>
+  <div class="vsep"></div>
+  <button class="ptt-mode-btn active" id="btn-ptt" onclick="setMode('ptt')">PTT</button>
+  <button class="ptt-mode-btn" id="btn-latch" onclick="setMode('latch')">LATCH</button>
+  <div class="vsep"></div>
+  <button class="btn" style="padding:3px 12px;font-size:8px;" onclick="window.open('/regia/intercom-board.html','_blank')">📡 INTERCOM ↗</button>
 </div>
 
 <!-- TABS -->
@@ -713,6 +747,13 @@ function buildCamGrid() {
     pill.className = 'cbpill';
     pill.id = `cb-${i}`;
     pill.innerHTML = `<span class="cbdot"></span>CAM ${i}`;
+    pill.title = `PTT CAM ${i} (tasto ${i})`;
+    // PTT touch/mouse
+    pill.addEventListener('mousedown',  (e) => { e.preventDefault(); pillDown(i); });
+    pill.addEventListener('mouseup',    ()  => pillUp(i));
+    pill.addEventListener('mouseleave', ()  => pillUp(i));
+    pill.addEventListener('touchstart', (e) => { e.preventDefault(); pillDown(i); }, { passive:false });
+    pill.addEventListener('touchend',   (e) => { e.preventDefault(); pillUp(i); },   { passive:false });
     bar.insertBefore(pill, sep);
   }
 }
@@ -970,9 +1011,173 @@ function fmtUp(s) {
   return Math.floor(s/3600)+'h'+Math.floor((s%3600)/60)+'m';
 }
 
-document.querySelectorAll('.modal-overlay').forEach(el=>{
-  el.addEventListener('click',e=>{ if(e.target===el) el.classList.remove('open'); });
+
+/* ══════════════════════════════════════════════════════════
+   LIVEKIT PTT — integrato nella cambar
+   Replica la logica di intercom-board.html ma inline nella dashboard.
+   La regia può parlare alle camere senza aprire il pannello separato.
+══════════════════════════════════════════════════════════ */
+let lkRooms    = {};   // roomKey → Room
+let lkTracks   = {};   // roomKey → LocalAudioTrack
+let lkTokens   = {};   // roomKey → token string
+let lkUrl      = '';
+let pttMode    = 'ptt'; // 'ptt' | 'latch'
+let latchOpen  = new Set(); // room keys in latch-on
+let pressedCams = new Set(); // cam keys held down (PTT)
+
+async function initLiveKit() {
+  try {
+    const r = await fetch(`${S}/api/livekit/token/director`);
+    const d = await r.json();
+    lkTokens = d.tokens;
+    lkUrl    = d.url;
+    await connectLKRooms();
+  } catch(e) {
+    addLog('LiveKit init error: ' + e.message, 'err');
+  }
+}
+
+async function connectLKRooms() {
+  const { Room, RoomEvent } = LivekitClient;
+  for (const [key, token] of Object.entries(lkTokens)) {
+    if (key === 'general') continue; // skip general — solo ascolto passivo
+    try {
+      const room = new Room({
+        audioCaptureDefaults: { echoCancellation:true, noiseSuppression:true },
+        publishDefaults: { audioPreset: LivekitClient.AudioPresets.speech },
+      });
+      room.on(RoomEvent.Connected, () => {
+        updateLKStatus();
+        addLog(`LK connesso: ${key}`, 'ok');
+      });
+      room.on(RoomEvent.Disconnected, () => {
+        updateLKStatus();
+        setTimeout(() => reconnectLKRoom(key, token), 4000);
+      });
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === 'audio') {
+          const el = track.attach();
+          el.style.display = 'none';
+          document.body.appendChild(el);
+        }
+      });
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        if (!key.startsWith('cam')) return;
+        const camId = parseInt(key.replace('cam',''));
+        const remoteSpeak = speakers.some(s => s.identity === `cam${camId}`);
+        const pill = document.getElementById(`cb-${camId}`);
+        if (pill && !pressedCams.has(key) && !latchOpen.has(key)) {
+          pill.classList.toggle('latch-ready', remoteSpeak);
+        }
+      });
+      await room.connect(lkUrl, token);
+      // Pubblica track mutato
+      const track = await LivekitClient.createLocalAudioTrack({ echoCancellation:true, noiseSuppression:true });
+      await room.localParticipant.publishTrack(track, { muted:true });
+      await track.mute();
+      lkTracks[key] = track;
+      lkRooms[key]  = room;
+    } catch(e) {
+      addLog(`LK room ${key} error: ${e.message}`, 'err');
+    }
+  }
+  updateLKStatus();
+}
+
+async function reconnectLKRoom(key, token) {
+  if (lkRooms[key]?.state === 'connected') return;
+  try {
+    await lkRooms[key]?.connect(lkUrl, token);
+  } catch {}
+}
+
+function updateLKStatus() {
+  const connected = Object.values(lkRooms).filter(r => r.state === 'connected').length;
+  const total = Object.keys(lkTokens).filter(k => k !== 'general').length;
+  const led = document.getElementById('lk-led');
+  const lbl = document.getElementById('lk-lbl');
+  if (!led) return;
+  if (connected === total && total > 0) {
+    led.className = 'lk-led on';
+    lbl.textContent = 'VOCE ✓';
+  } else {
+    led.className = 'lk-led';
+    lbl.textContent = `VOCE ${connected}/${total}`;
+  }
+}
+
+/* ── PTT helpers ── */
+async function camTX(key, on) {
+  const track = lkTracks[key];
+  if (!track) return;
+  if (on) {
+    await track.unmute();
+    addLog(`PTT → ${key.toUpperCase()}`, 'warn');
+  } else {
+    await track.mute();
+  }
+  const camId = parseInt(key.replace('cam',''));
+  const pill = document.getElementById(`cb-${camId}`);
+  if (pill) pill.classList.toggle('tx', on);
+  // Header LK led
+  const anyTX = [...pressedCams].length > 0 || latchOpen.size > 0;
+  const led = document.getElementById('lk-led');
+  if (led) led.className = 'lk-led' + (anyTX ? ' tx' : ' on');
+}
+
+function setMode(m) {
+  pttMode = m;
+  // Chiudi tutto quello che era aperto
+  [...pressedCams].forEach(k => { camTX(k, false); });
+  [...latchOpen].forEach(k => { camTX(k, false); });
+  pressedCams.clear();
+  latchOpen.clear();
+  document.getElementById('btn-ptt').classList.toggle('active', m === 'ptt');
+  document.getElementById('btn-latch').classList.toggle('active', m === 'latch');
+  addLog(`Modalità PTT: ${m.toUpperCase()}`, 'info');
+}
+
+/* ── Pill event handlers (injected in buildCamGrid) ── */
+function pillDown(camId) {
+  const key = `cam${camId}`;
+  if (pttMode === 'ptt') {
+    pressedCams.add(key);
+    camTX(key, true);
+  } else {
+    // LATCH: toggle
+    if (latchOpen.has(key)) {
+      latchOpen.delete(key);
+      camTX(key, false);
+    } else {
+      latchOpen.add(key);
+      camTX(key, true);
+    }
+  }
+}
+function pillUp(camId) {
+  if (pttMode !== 'ptt') return;
+  const key = `cam${camId}`;
+  pressedCams.delete(key);
+  camTX(key, false);
+}
+
+/* ── Keyboard: tasti 1-5 per PTT, 0 per tutti ── */
+const kDown = new Set();
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  const n = parseInt(e.key);
+  if (n >= 1 && n <= 5 && !kDown.has(n)) { kDown.add(n); pillDown(n); }
+  if (e.key === '0' && !kDown.has(0)) { kDown.add(0); for(let i=1;i<=5;i++) pillDown(i); }
 });
+document.addEventListener('keyup', e => {
+  const n = parseInt(e.key);
+  if (n >= 1 && n <= 5) { kDown.delete(n); pillUp(n); }
+  if (e.key === '0') { kDown.delete(0); for(let i=1;i<=5;i++) pillUp(i); }
+});
+
 </script>
+<!-- LiveKit SDK -->
+<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"
+  onload="initLiveKit()"></script>
 </body>
 </html>
