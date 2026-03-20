@@ -484,8 +484,8 @@ async function connectAllRooms() {
         const track = await LivekitClient.createLocalAudioTrack({
           echoCancellation: true, noiseSuppression: true,
         });
-        await room.localParticipant.publishTrack(track, { muted: true });
-        // Muta esplicitamente — publishTrack muted:true non sempre sufficiente
+        await room.localParticipant.publishTrack(track);
+        await new Promise(r => setTimeout(r, 300));
         await track.mute();
         localTracks[key] = track;
         // Avvia VU meter sulla prima room cam
@@ -769,27 +769,23 @@ let vuInterval = null;
 
 function startMicMeter(track) {
   try {
-    // Usa getUserMedia indipendente — non è influenzato dal mute LiveKit
-    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      .then(stream => {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const src = ctx.createMediaStreamSource(stream);
-        vuAnalyzer = ctx.createAnalyser();
-        vuAnalyzer.fftSize = 256;
-        src.connect(vuAnalyzer);
-        const data = new Uint8Array(vuAnalyzer.frequencyBinCount);
-        const bar = document.getElementById('vuBar');
-        if (vuInterval) clearInterval(vuInterval);
-        vuInterval = setInterval(() => {
-          if (!vuAnalyzer || !bar) return;
-          vuAnalyzer.getByteFrequencyData(data);
-          const avg = data.reduce((a, b) => a + b, 0) / data.length;
-          const pct = Math.min(100, avg * 2);
-          bar.style.width = pct + '%';
-          bar.className = 'vu-bar' + (pct > 80 ? ' peak' : pct > 60 ? ' warn' : '');
-        }, 50);
-      })
-      .catch(() => {});
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const stream = new MediaStream([track.mediaStreamTrack]);
+    const src = ctx.createMediaStreamSource(stream);
+    vuAnalyzer = ctx.createAnalyser();
+    vuAnalyzer.fftSize = 256;
+    src.connect(vuAnalyzer);
+    const data = new Uint8Array(vuAnalyzer.frequencyBinCount);
+    const bar = document.getElementById('vuBar');
+    if (vuInterval) clearInterval(vuInterval);
+    vuInterval = setInterval(() => {
+      if (!vuAnalyzer || !bar) return;
+      vuAnalyzer.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      const pct = Math.min(100, avg * 2);
+      bar.style.width = pct + '%';
+      bar.className = 'vu-bar' + (pct > 80 ? ' peak' : pct > 60 ? ' warn' : '');
+    }, 50);
   } catch(e) {}
 }
 
@@ -850,7 +846,10 @@ async function openConference() {
 
     await confRoomObj.connect(data.url || lkUrl, data.director_token);
     confDirectorTrack = await LivekitClient.createLocalAudioTrack({echoCancellation: true, noiseSuppression: true});
-    await confRoomObj.localParticipant.publishTrack(confDirectorTrack, {muted: true});
+    // Pubblica senza opzione muted (non supportata nelle versioni recenti di LiveKit)
+    // poi muta subito dopo un breve delay per lasciare stabilizzare la connessione
+    await confRoomObj.localParticipant.publishTrack(confDirectorTrack);
+    await new Promise(r => setTimeout(r, 300));
     await confDirectorTrack.mute();
 
     const camList = [...confSelectedCams].map(c => `CAM${c}`).join(', ');

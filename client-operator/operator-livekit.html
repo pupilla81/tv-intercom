@@ -298,8 +298,9 @@ async function connectLiveKit() {
     localTrack = await LivekitClient.createLocalAudioTrack({
       echoCancellation: true, noiseSuppression: true,
     });
-    await lkRoom.localParticipant.publishTrack(localTrack, { muted: true });
-    // Muto esplicito — publishTrack muted:true non sempre sufficiente su tutti i browser
+    await lkRoom.localParticipant.publishTrack(localTrack);
+    await new Promise(r => setTimeout(r, 300));
+    
     await localTrack.mute();
     addLog("Microfono pronto — PTT attivo", "ok");
 
@@ -494,7 +495,8 @@ async function joinConference(token) {
     });
     await confRoom.connect(lkRoom.url || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/livekit`, token);
     confTrack = await LivekitClient.createLocalAudioTrack({ echoCancellation: true, noiseSuppression: true });
-    await confRoom.localParticipant.publishTrack(confTrack, { muted: true });
+    await confRoom.localParticipant.publishTrack(confTrack);
+    await new Promise(r => setTimeout(r, 300));
     // Collega il PTT anche alla conference room
     localTrack._confTrack = confTrack;
     addLog("Conference: connesso ✓", "ok");
