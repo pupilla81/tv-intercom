@@ -25,18 +25,6 @@ Sistema modulare per la comunicazione automatica e manuale tra regia e operatori
 
 ---
 
-## URL sistema
-
-| URL | Descrizione |
-|---|---|
-| `https://tvintercom.duckdns.org/` | Dashboard Control Room |
-| `https://tvintercom.duckdns.org/docs` | API docs (FastAPI) |
-| `https://tvintercom.duckdns.org/regia/intercom-board.html` | Pannello regia LiveKit |
-| `https://tvintercom.duckdns.org/operator/?cam=N` | PWA istruzioni CAM N |
-| `https://tvintercom.duckdns.org/operator/operator-livekit.html?cam=N` | PWA voce CAM N |
-
----
-
 ## Quick Start
 
 ```bash
