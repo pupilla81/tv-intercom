@@ -405,6 +405,70 @@ class ConvertScriptRequest(BaseModel):
     date: str = ""
     location: str = ""
 
+# ---------------------------------------------------------------------------
+# Helper: carica il nuovo formato JSON (generato da doc_to_script.py)
+# Costruisce oggetti compatibili con CueEngine senza usare script_parser
+# ---------------------------------------------------------------------------
+def _load_new_format(script: dict):
+    """
+    Legge il JSON generato dal nuovo doc_to_script.py e restituisce
+    (meta, cues) compatibili con il resto del server.
+    """
+    from types import SimpleNamespace
+
+    meta = script.get("metadata", {})
+
+    cues_out = []
+    for c in script.get("cues", []):
+        # Trigger
+        trig_data = c.get("trigger", {})
+        trigger = SimpleNamespace(
+            type=trig_data.get("type", "manual"),
+            text=trig_data.get("text", ""),
+        )
+        # Instructions
+        instructions = [
+            SimpleNamespace(
+                camera=i.get("camera", 1),
+                text=i.get("text", ""),
+                audio_file=i.get("audio_file", None),
+            )
+            for i in c.get("instructions", [])
+        ]
+        cue = SimpleNamespace(
+            cue_id=c.get("cue_id", ""),
+            scene_id=c.get("scene_id", 1),
+            scene_name=c.get("scene_name", ""),
+            trigger=trigger,
+            instructions=instructions,
+            fired=False,
+        )
+        cues_out.append(cue)
+
+    return meta, cues_out
+
+
+async def load_new_format_file(path: str):
+    """Carica un JSON nel nuovo formato (doc_to_script v2) nel server."""
+    raw = Path(path).read_text(encoding="utf-8")
+    script = json.loads(raw)
+    meta, cues = _load_new_format(script)
+
+    state.metadata = meta
+    state.all_cues = cues
+    state.script_loaded = True
+
+    auto = [c for c in cues if c.trigger.type == "line"]
+    state.engine = CueEngine(auto, on_cue_fired=on_cue_fired)
+
+    if state.tts:
+        log.info("TTS pre-generazione audio in corso...")
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, state.tts.pregenerate_all, cues)
+
+    return meta, cues
+
+
 @app.post("/api/script/convert")
 async def api_script_convert(req: ConvertScriptRequest):
     """Converte testo copione in JSON e lo carica nel server."""
@@ -420,21 +484,23 @@ async def api_script_convert(req: ConvertScriptRequest):
             encoding="utf-8"
         )
 
-        # Carica nel server
-        meta, cues = await load_script_file(str(script_path))
-        auto = get_auto_cues(cues)
-        manual = get_manual_cues(cues)
+        # Carica con il loader nativo per il nuovo formato
+        meta, cues = await load_new_format_file(str(script_path))
+        auto   = [c for c in cues if c.trigger.type == "line"]
+        manual = [c for c in cues if c.trigger.type == "manual"]
 
         await notify_directors({"type": "script_loaded", "metadata": meta})
         return {
             "ok": True,
-            "title": meta["title"],
+            "title": meta.get("title", ""),
             "cues_total": len(cues),
             "cues_auto": len(auto),
             "cues_manual": len(manual),
         }
     except Exception as e:
+        log.exception("Errore convert script")
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @app.get("/api/tts/voices")
 async def api_tts_voices():
