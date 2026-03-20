@@ -252,8 +252,8 @@ async def api_cues():
     return [
         {
             "cue_id": c.cue_id,
-            "act_id": c.act_id,
-            "scene_id": c.scene_id,
+            "scene_id": getattr(c, "scene_id", 1),
+            "scene_name": getattr(c, "scene_name", ""),
             "type": c.trigger.type,
             "trigger_text": c.trigger.text,
             "cameras": [i.camera for i in c.instructions],
@@ -294,6 +294,76 @@ async def api_reset():
         state.last_audio.clear()
     await notify_directors({"type": "engine_reset"})
     return {"ok": True}
+
+
+class GotoSceneRequest(BaseModel):
+    scene_id: int
+
+@app.post("/api/engine/goto-scene")
+async def api_goto_scene(req: GotoSceneRequest):
+    """
+    Sposta il puntatore dell'engine all'inizio della scena specificata.
+    Resetta i fired solo dei cue della scena corrente in poi.
+    """
+    if not state.engine or not state.script_loaded:
+        raise HTTPException(status_code=400, detail="Engine non inizializzato")
+
+    # Trova il primo cue auto della scena
+    target_idx = next(
+        (i for i, c in enumerate(state.all_cues)
+         if getattr(c, "scene_id", None) == req.scene_id
+         and c.trigger.type == "line"),
+        None
+    )
+    if target_idx is None:
+        # Scena con solo cue manuali — va bene, non sposta il puntatore auto
+        log.info(f"Goto scena {req.scene_id}: nessun cue auto, puntatore invariato")
+    else:
+        state.engine.pointer = target_idx
+        log.info(f"Goto scena {req.scene_id}: puntatore → {target_idx}")
+
+    await notify_directors({"type": "scene_changed", "scene_id": req.scene_id})
+    return {"ok": True, "scene_id": req.scene_id, "pointer": state.engine.pointer if state.engine else 0}
+
+
+@app.delete("/api/script/clear")
+async def api_script_clear():
+    """
+    Cancella il file script.json generato e svuota la cache TTS su disco.
+    Utile per partire puliti prima di un nuovo copione.
+    """
+    deleted = []
+
+    # Cancella script.json
+    script_path = Path(__file__).parent.parent / "script-parser" / "script.json"
+    if script_path.exists():
+        script_path.unlink()
+        deleted.append("script.json")
+        log.info("script.json eliminato")
+
+    # Svuota cache TTS su disco
+    tts_cache_dir = Path(__file__).parent.parent / "script-parser" / "audio" / "_tts_cache"
+    deleted_audio = 0
+    if tts_cache_dir.exists():
+        for f in tts_cache_dir.glob("*.mp3"):
+            f.unlink()
+            deleted_audio += 1
+        deleted.append(f"{deleted_audio} file audio TTS")
+        log.info(f"Cache TTS svuotata: {deleted_audio} file eliminati")
+
+    # Reset stato in memoria
+    if state.tts:
+        state.tts._cache.clear()
+    state.script_loaded = False
+    state.metadata = {}
+    state.all_cues = []
+    state.engine = None
+    state.cues_fired_count = 0
+    state.last_text.clear()
+    state.last_audio.clear()
+
+    await notify_directors({"type": "script_cleared"})
+    return {"ok": True, "deleted": deleted}
 
 @app.get("/api/tts/test-audio")
 async def api_tts_test(text: str = None):
@@ -663,92 +733,6 @@ async def api_conference_close():
     conference_state["cameras"] = []
     log.info("Conference chiusa")
     return {"ok": True}
-
-@app.get("/api/scripts")
-async def api_list_scripts():
-    """Lista i file JSON nella cartella script-parser — per selezione da dashboard."""
-    script_dir = Path(__file__).parent.parent / "script-parser"
-    files = sorted(script_dir.glob("*.json"))
-    return {"files": [f.name for f in files]}
-
-
-@app.get("/api/script/download")
-async def api_script_download():
-    """Scarica il file JSON del copione correntemente caricato."""
-    from fastapi.responses import FileResponse as FR
-    script_path = Path(__file__).parent.parent / "script-parser" / "script.json"
-    sample_path = Path(__file__).parent.parent / "script-parser" / "sample_script.json"
-    target = script_path if script_path.exists() else sample_path
-    if not target.exists():
-        raise HTTPException(status_code=404, detail="Nessun file copione trovato")
-    return FR(str(target), media_type="application/json",
-              headers={"Content-Disposition": f"attachment; filename={target.name}"})
-
-
-class TTSConfigRequest(BaseModel):
-    voice_id: Optional[str] = None
-    stability: Optional[float] = None
-    similarity_boost: Optional[float] = None
-    style: Optional[float] = None
-    use_speaker_boost: Optional[bool] = None
-
-@app.post("/api/tts/config")
-async def api_tts_config(req: TTSConfigRequest):
-    """Aggiorna voce e parametri TTS a runtime — effetto immediato sul prossimo audio generato."""
-    if not state.tts:
-        raise HTTPException(status_code=400, detail="TTS non configurato")
-    settings = {}
-    if req.stability       is not None: settings["stability"]        = req.stability
-    if req.similarity_boost is not None: settings["similarity_boost"] = req.similarity_boost
-    if req.style           is not None: settings["style"]            = req.style
-    if req.use_speaker_boost is not None: settings["use_speaker_boost"] = req.use_speaker_boost
-    state.tts.update_config(
-        voice_id=req.voice_id,
-        settings=settings if settings else None
-    )
-    return {"ok": True, "voice_id": state.tts.voice_id, "settings": state.tts.voice_settings}
-
-
-@app.post("/api/tts/pregenerate")
-async def api_tts_pregenerate():
-    """Rigenera tutti gli audio TTS per il copione corrente (utile dopo cambio voce/parametri)."""
-    if not state.tts:
-        raise HTTPException(status_code=400, detail="TTS non configurato")
-    if not state.script_loaded:
-        raise HTTPException(status_code=400, detail="Nessun copione caricato")
-    # Svuota la cache per forzare la rigenerazione
-    state.tts._cache.clear()
-    loop = asyncio.get_event_loop()
-    stats = await loop.run_in_executor(None, state.tts.pregenerate_all, state.all_cues)
-    log.info(f"TTS pregenerate: {stats}")
-    return {"ok": True, **stats}
-
-
-class GotoSceneRequest(BaseModel):
-    act_id: int
-    scene_id: int
-
-@app.post("/api/engine/goto")
-async def api_engine_goto(req: GotoSceneRequest):
-    """Sposta il puntatore dell'engine all'inizio della scena indicata senza scattare cue."""
-    if not state.engine:
-        raise HTTPException(status_code=400, detail="Engine non inizializzato")
-    # Trova il primo cue della scena
-    idx = next(
-        (i for i, c in enumerate(state.all_cues)
-         if c.act_id == req.act_id and c.scene_id == req.scene_id),
-        None
-    )
-    if idx is None:
-        raise HTTPException(status_code=404, detail=f"Scena A{req.act_id}/S{req.scene_id} non trovata")
-    state.engine.pointer = idx
-    # Reset fired per i cue dalla scena in poi (opzionale ma utile)
-    for c in state.all_cues[idx:]:
-        c.fired = False
-    await notify_directors({"type": "engine_goto", "act_id": req.act_id, "scene_id": req.scene_id, "pointer": idx})
-    log.info(f"Engine goto: A{req.act_id}/S{req.scene_id} → ptr={idx}")
-    return {"ok": True, "pointer": idx}
-
 
 # ---------------------------------------------------------------------------
 # Serve PWA operatore

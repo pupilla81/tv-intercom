@@ -467,6 +467,7 @@ input[type=range].sl::-webkit-slider-thumb {
           <button class="btn a" onclick="openModal('load')">CARICA FILE</button>
           <button class="btn" onclick="openModal('conv')">INCOLLA TESTO</button>
           <button class="btn r" id="btn-reset" onclick="resetEngine()" disabled>RESET</button>
+          <button class="btn r" id="btn-clear" onclick="clearScript()" title="Cancella script.json e cache TTS dal server">🗑 CANCELLA</button>
         </div>
       </div>
 
@@ -475,22 +476,13 @@ input[type=range].sl::-webkit-slider-thumb {
         <div class="sec-h">SCENA ATTIVA</div>
         <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
           <div style="font-size:9px;color:var(--muted);letter-spacing:1px;">Seleziona per spostare il puntatore engine all'inizio della scena.</div>
-          <div class="g2">
-            <div>
-              <div class="flbl">ATTO</div>
-              <select class="inp" id="goto-act" onchange="buildSceneSelect()"><option value="">—</option></select>
-            </div>
-            <div>
-              <div class="flbl">SCENA</div>
-              <select class="inp" id="goto-scene"><option value="">—</option></select>
-            </div>
-          </div>
+          <select class="inp" id="goto-scene"><option value="">— nessun copione —</option></select>
           <button class="btn a w" onclick="gotoScene()">▶ VAI A QUESTA SCENA</button>
           <div id="goto-status" style="font-size:9px;color:var(--muted);min-height:14px;letter-spacing:1px;"></div>
         </div>
       </div>
 
-      <!-- File JSON sul server + download -->
+      <!-- File JSON sul server -->
       <div class="sec">
         <div class="sec-h">FILE COPIONE SUL SERVER <div class="spacer"></div>
           <button class="btn" style="padding:2px 7px;font-size:8px;" onclick="refreshScripts()">↺</button>
@@ -696,6 +688,13 @@ function onMsg(m) {
       addLog('STT fermato','warn'); break;
     case 'engine_reset':
       addLog('Engine resettato','warn'); loadCues(); pollStatus(); break;
+    case 'scene_changed':
+      addLog(`Scena attiva: ${m.scene_id}`, 'ok'); break;
+    case 'script_cleared':
+      cues=[]; led('sc','off','COPIONE');
+      addLog('Copione e cache TTS cancellati dal server','warn');
+      renderCueList(); renderManualCues(); renderScript(); populateSceneSelect();
+      break;
   }
 }
 
@@ -784,7 +783,7 @@ async function loadCues() {
     const r = await fetch(`${S}/api/cues`);
     cues = await r.json();
     renderCueList(); renderManualCues(); renderScript(); updateNext();
-    buildActSelect();
+    populateSceneSelect();
   } catch(e) { addLog('Errore cue: '+e.message,'err'); }
 }
 
@@ -859,11 +858,14 @@ async function resetEngine() {
 /* ══ SCRIPT RENDERING ══ */
 function renderScript() {
   const sc = document.getElementById('scScroll');
-  if(!cues.length) return;
-  let html='', lastAct=null, lastScene=null;
+  if(!cues.length) { sc.innerHTML='<div style="color:var(--muted);padding:20px;text-align:center;letter-spacing:2px;font-size:10px;">CARICA UN COPIONE</div>'; return; }
+  let html='', lastScene=null;
   cues.forEach(c => {
-    if(c.act_id!==lastAct) { html+=`<div class="act-hdr">ATTO ${c.act_id}</div>`; lastAct=c.act_id; }
-    if(c.scene_id!==lastScene) { html+=`<div class="scene-hdr">SCENA ${c.scene_id}</div>`; lastScene=c.scene_id; }
+    if(c.scene_id!==lastScene) {
+      const sname = c.scene_name ? ` — ${c.scene_name}` : '';
+      html+=`<div class="scene-hdr" id="scene-${c.scene_id}">SCENA ${c.scene_id}${sname}</div>`;
+      lastScene=c.scene_id;
+    }
     const isMan = c.type!=='line', fired=c.fired;
     const cams = (c.cameras||[]).map(n=>
       `<span class="cue-pill ${isMan?'manual':'auto'} ${fired?'fired':''}" data-cue="${c.cue_id}" onclick="fireCue('${c.cue_id}')">`+
@@ -883,7 +885,7 @@ function renderScript() {
       </div>`;
     }
   });
-  sc.innerHTML = html || '<div style="color:var(--muted);padding:20px;">Nessun contenuto</div>';
+  sc.innerHTML = html;
 }
 
 function esc(t) { return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -1051,36 +1053,71 @@ async function downloadScript() {
 }
 
 /* ══ GOTO SCENE ══ */
-function buildActSelect() {
-  // Popola select atto da cues caricati
-  const acts = [...new Set(cues.map(c=>c.act_id))].sort((a,b)=>a-b);
-  const sel = document.getElementById('goto-act');
-  sel.innerHTML = '<option value="">—</option>' + acts.map(a=>`<option value="${a}">ATTO ${a}</option>`).join('');
-  document.getElementById('goto-scene').innerHTML = '<option value="">—</option>';
-}
-
-function buildSceneSelect() {
-  const act = parseInt(document.getElementById('goto-act').value);
-  const scenes = [...new Set(cues.filter(c=>c.act_id===act).map(c=>c.scene_id))].sort((a,b)=>a-b);
+function populateSceneSelect() {
+  // Costruisce il selettore scena da cues (solo scene, niente atti)
+  const seen = new Map();
+  cues.forEach(c => {
+    if (!seen.has(c.scene_id)) seen.set(c.scene_id, c.scene_name || '');
+  });
   const sel = document.getElementById('goto-scene');
-  sel.innerHTML = '<option value="">—</option>' + scenes.map(s=>`<option value="${s}">SCENA ${s}</option>`).join('');
+  sel.innerHTML = '<option value="">— seleziona scena —</option>';
+  [...seen.entries()].sort((a,b)=>a[0]-b[0]).forEach(([sid, sname]) => {
+    const opt = document.createElement('option');
+    opt.value = sid;
+    opt.textContent = `SCENA ${sid}${sname ? ' — '+sname : ''}`;
+    sel.appendChild(opt);
+  });
+  // Aggiorna anche il selettore nel prompter
+  const pSel = document.getElementById('p-scene-select');
+  if (pSel) {
+    pSel.innerHTML = sel.innerHTML;
+  }
 }
 
 async function gotoScene() {
-  const act = parseInt(document.getElementById('goto-act').value);
   const scene = parseInt(document.getElementById('goto-scene').value);
-  if(!act || !scene) return;
+  if (!scene) return;
   const el = document.getElementById('goto-status');
   try {
-    const r = await fetch(`${S}/api/engine/goto`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({act_id:act,scene_id:scene})});
+    const r = await fetch(`${S}/api/engine/goto-scene`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({scene_id: scene})
+    });
     const d = await r.json();
-    if(d.ok) {
-      el.textContent = `✓ Puntatore → A${act}/S${scene} (idx ${d.pointer})`;
+    if (d.ok) {
+      el.textContent = `✓ Puntatore → Scena ${scene} (idx ${d.pointer})`;
       el.style.color = 'var(--green)';
-      addLog(`Engine goto: Atto ${act} Scena ${scene}`, 'ok');
-      await loadCues();
-    } else { el.textContent = d.detail; el.style.color='var(--red)'; }
+      addLog(`Engine goto: Scena ${scene}`, 'ok');
+      // Scrolla il prompter alla scena
+      const sceneEl = document.getElementById(`scene-${scene}`);
+      if (sceneEl) sceneEl.scrollIntoView({behavior:'smooth', block:'start'});
+    } else {
+      el.textContent = d.detail;
+      el.style.color = 'var(--red)';
+    }
   } catch(e) { el.textContent='Errore rete'; el.style.color='var(--red)'; }
+}
+
+/* ══ CLEAR SCRIPT ══ */
+async function clearScript() {
+  if (!confirm('Cancellare script.json e tutta la cache audio TTS dal server?\nQuesta operazione è irreversibile.')) return;
+  try {
+    const r = await fetch(`${S}/api/script/clear`, {method:'DELETE'});
+    const d = await r.json();
+    if (d.ok) {
+      toast('Copione e cache TTS cancellati', 'a');
+      addLog(`Cancellati: ${d.deleted.join(', ')}`, 'warn');
+      cues = [];
+      renderCueList(); renderManualCues(); renderScript();
+      populateSceneSelect();
+      document.getElementById('si-title').textContent = '—';
+      document.getElementById('si-tot').textContent = '—';
+      document.getElementById('si-split').textContent = '—';
+      document.getElementById('sc-tag').textContent = 'NESSUNO';
+      document.getElementById('sc-tag').className = 'tag';
+      led('sc','off','COPIONE');
+    } else toast('Errore: '+(d.detail||''), 'e');
+  } catch(e) { toast('Errore rete','e'); }
 }
 
 /* ══ LOG ══ */

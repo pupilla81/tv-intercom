@@ -1,286 +1,253 @@
 """
 tools/doc_to_script.py
 ----------------------
-Convertitore da testo copione (Google Doc / testo semplice)
-al formato JSON del sistema TV Intercom.
+Converte testo libero copione → script.json
 
-Convenzione nel documento:
-    PERSONAGGIO
-    Battuta del personaggio.
-    [CAM1: istruzione per camera 1]
-    [CAM3: istruzione per camera 3]
+Formato supportato:
+    TITOLO COPIONE              ← prima riga non vuota = titolo (se --title non specificato)
 
-Utilizzo:
+    SCENA 1 - Titolo scena     ← intestazione scena (opzionale ATTO N ignorato)
+
+    [MANUALE: nota regia]      ← cue manuale di regia
+    [CAM1: istruzione]         ← parte del blocco manuale se segue [MANUALE:]
+    [CAM2: istruzione]
+
+    PERSONAGGIO                ← nome attore (riga maiuscola) = trigger STT
+    Testo della battuta...     ← testo che STT ascolta
+    [CAM1: istruzione]         ← cue automatico legato alla battuta sopra
+    [CAM2: istruzione]
+
+    SCENA 2 - Altro titolo
+    ...
+
+Regole:
+    - ATTO N → ignorato (trattato come separatore visivo)
+    - Prima riga non vuota → titolo se --title non specificato
+    - Blocchi [CAMx:] dopo testo personaggio → cue automatici (trigger STT)
+    - Blocchi [MANUALE:] + [CAMx:] seguenti → cue manuale
+    - Testo senza brackets → battute / narratore (appare nel prompter)
+
+Uso:
+    python doc_to_script.py --input copione.txt --title "Titolo"
     python doc_to_script.py --input copione.txt --output script.json
-    python doc_to_script.py --interactive --output script.json
-    python doc_to_script.py --input copione.txt --title "Romeo e Giulietta" --date "2026-06-15"
+    python doc_to_script.py --interactive
 """
 
-import argparse
-import json
 import re
+import json
+import argparse
 import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Configurazione defaults
-# ---------------------------------------------------------------------------
-DEFAULT_MATCH_THRESHOLD = 0.78
-DEFAULT_ADVANCE_SECONDS = 1.5
-CAMERAS = [1, 2, 3, 4, 5]
-
-# Pattern
-CAM_PATTERN    = re.compile(r'\[CAM\s*(\d+)\s*:\s*(.+?)\]', re.IGNORECASE)
-ACT_PATTERN    = re.compile(r'^(ATTO|ACT)\s+', re.IGNORECASE)
-SCENE_PATTERN  = re.compile(r'^(SCENA|SCENE)\s+', re.IGNORECASE)
-MANUAL_PATTERN = re.compile(r'^\[(CUE|MANUALE)[:\s]', re.IGNORECASE)
-CHAR_PATTERN   = re.compile(r'^[A-ZÀÈÌÒÙ][A-ZÀÈÌÒÙ\s]{1,30}$')
-
 
 # ---------------------------------------------------------------------------
-# Parser
+# Regex
 # ---------------------------------------------------------------------------
-def parse_script(text: str, title="", date="", location="") -> dict:
-    lines = [l.rstrip() for l in text.splitlines()]
+RE_SCENE   = re.compile(r'^SCENA\s+(\d+)\s*(?:-\s*(.+))?$', re.IGNORECASE)
+RE_ACT     = re.compile(r'^ATTO\s+\d+', re.IGNORECASE)
+RE_CAM     = re.compile(r'^\[CAM(\d+):\s*(.+)\]$', re.IGNORECASE)
+RE_MANUAL  = re.compile(r'^\[MANUALE:\s*(.+)\]$', re.IGNORECASE)
+RE_CHAR    = re.compile(r'^[A-ZÀÈÉÌÒÙÁÉÍÓÚ][A-ZÀÈÉÌÒÙÁÉÍÓÚ\s]{1,30}$')
 
-    # Struttura corrente
-    act_num   = 0
-    scene_num = 0
-    cue_count = 0
 
-    def act_id():   return f"ACT{act_num}"
-    def scene_id(): return f"ACT{act_num}_SC{scene_num}"
+def is_character(line: str) -> bool:
+    """Riga di personaggio: tutto maiuscolo, breve, nessun bracket."""
+    return bool(RE_CHAR.match(line.strip())) and '[' not in line
 
-    # Accumulatori
-    acts   = {}   # act_id -> {"title": str, "scenes": {scene_id -> {"title", "cues"}}}
-    
-    def ensure_scene():
-        a = act_id()
-        s = scene_id()
-        if a not in acts:
-            acts[a] = {"title": f"Atto {act_num}", "scenes": {}}
-        if s not in acts[a]["scenes"]:
-            acts[a]["scenes"][s] = {"title": f"Scena {scene_num}", "cues": []}
 
-    def add_cue(trigger_type, trigger_text, character, instructions):
-        nonlocal cue_count
-        ensure_scene()
-        cue_count += 1
-        cue_id = f"{scene_id()}_CUE{cue_count:02d}"
-        cue = {
-            "cue_id": cue_id,
-            "trigger": {
-                "type": trigger_type,
-                "text": trigger_text,
-                "character": character,
-                "match_threshold": DEFAULT_MATCH_THRESHOLD if trigger_type == "line" else None,
-                "advance_seconds": DEFAULT_ADVANCE_SECONDS if trigger_type == "line" else 0,
-            },
-            "instructions": [
-                {
-                    "camera": int(cam),
-                    "text": instr.strip(),
-                    "audio_file": None,
-                    "priority": "normal"
-                }
-                for cam, instr in instructions
-            ]
-        }
-        acts[act_id()]["scenes"][scene_id()]["cues"].append(cue)
+def parse_script(text: str, title: str = "", date: str = "", location: str = "") -> dict:
+    lines = text.splitlines()
+    cues = []
+    script_lines_out = []   # per il prompter: lista di blocchi testo/cue in ordine
 
-    # Stato macchina
-    current_char    = None
-    current_line    = None
-    pending_instrs  = []   # lista di (cam_num, testo)
-    in_manual       = False
+    # --- Auto-titolo dalla prima riga non vuota ---
+    if not title:
+        for line in lines:
+            stripped = line.strip()
+            if stripped and not RE_SCENE.match(stripped) and not RE_ACT.match(stripped):
+                title = stripped
+                break
 
-    def flush():
-        """Emetti cue se ci sono istruzioni pendenti."""
-        nonlocal in_manual
-        if not pending_instrs:
+    current_scene_id   = 1
+    current_scene_name = ""
+    cue_counter        = 0
+
+    # Stato parser
+    pending_trigger_text = None   # testo STT in attesa di [CAMx:]
+    pending_char         = None   # nome personaggio corrente
+    in_manual_block      = False  # siamo dentro un blocco [MANUALE:]
+    manual_desc          = ""
+    manual_cams          = []     # {cam, text}
+
+    def flush_manual():
+        nonlocal in_manual_block, manual_desc, manual_cams, cue_counter
+        if not manual_cams:
+            in_manual_block = False
             return
-        if in_manual:
-            add_cue("manual", None, None, pending_instrs)
-            in_manual = False
-        elif current_line:
-            add_cue("line", current_line, current_char, pending_instrs)
-        pending_instrs.clear()
+        cue_counter += 1
+        cue_id = f"S{current_scene_id}-M{cue_counter:02d}"
+        cues.append({
+            "cue_id": cue_id,
+            "scene_id": current_scene_id,
+            "scene_name": current_scene_name,
+            "trigger": {"type": "manual", "text": manual_desc},
+            "instructions": [{"camera": c["cam"], "text": c["text"]} for c in manual_cams],
+            "fired": False,
+        })
+        script_lines_out.append({"type": "cue_ref", "cue_id": cue_id})
+        in_manual_block = False
+        manual_desc     = ""
+        manual_cams     = []
 
-    for raw in lines:
-        stripped = raw.strip()
-        if not stripped:
+    def flush_auto():
+        nonlocal pending_trigger_text, pending_char, cue_counter
+        # non fare nulla se non ci sono cam raccolte — il testo è solo narratore
+        pending_trigger_text = None
+        pending_char         = None
+
+    # Raccoglitore cam per cue automatico corrente
+    auto_cams = []
+
+    def commit_auto():
+        nonlocal pending_trigger_text, pending_char, cue_counter, auto_cams
+        if pending_trigger_text and auto_cams:
+            cue_counter += 1
+            cue_id = f"S{current_scene_id}-A{cue_counter:02d}"
+            cues.append({
+                "cue_id": cue_id,
+                "scene_id": current_scene_id,
+                "scene_name": current_scene_name,
+                "trigger": {"type": "line", "text": pending_trigger_text},
+                "instructions": [{"camera": c["cam"], "text": c["text"]} for c in auto_cams],
+                "fired": False,
+            })
+            script_lines_out.append({"type": "cue_ref", "cue_id": cue_id})
+        pending_trigger_text = None
+        pending_char         = None
+        auto_cams            = []
+
+    i = 0
+    while i < len(lines):
+        raw  = lines[i]
+        line = raw.strip()
+        i   += 1
+
+        if not line:
             continue
 
-        # --- ATTO ---
-        if ACT_PATTERN.match(stripped):
-            flush()
-            act_num  += 1
-            scene_num = 0
-            cue_count = 0
-            current_char = None
-            current_line = None
-            ensure_scene()
-            # aggiorna titolo atto
-            acts[act_id()]["title"] = stripped
+        # --- ATTO → ignorato ---
+        if RE_ACT.match(line):
             continue
 
         # --- SCENA ---
-        if SCENE_PATTERN.match(stripped):
-            flush()
-            scene_num += 1
-            cue_count  = 0
-            current_char = None
-            current_line = None
-            ensure_scene()
-            acts[act_id()]["scenes"][scene_id()]["title"] = stripped
-            continue
-
-        # --- CUE MANUALE [MANUALE: ...] o [CUE: ...] ---
-        if MANUAL_PATTERN.match(stripped):
-            flush()
-            in_manual    = True
-            current_line = None
-            continue
-
-        # --- ISTRUZIONE CAMERA [CAM1: ...] ---
-        cam_matches = CAM_PATTERN.findall(stripped)
-        if cam_matches:
-            pending_instrs.extend(cam_matches)
-            continue
-
-        # --- PERSONAGGIO (riga tutta in maiuscolo) ---
-        if CHAR_PATTERN.match(stripped):
-            flush()
-            current_char = stripped
-            current_line = None
-            in_manual    = False
-            continue
-
-        # --- BATTUTA ---
-        # Considera solo se abbiamo un personaggio corrente
-        if current_char:
-            # Se c'erano istruzioni pendenti per la battuta precedente, emetti
-            if pending_instrs and current_line:
-                flush()
-            current_line = stripped
-
-    # Flush finale
-    flush()
-
-    # Costruisci JSON finale
-    ensure_scene()
-    acts_list = []
-    for aid, act_data in acts.items():
-        scenes_list = [
-            {
-                "scene_id": sid,
-                "title": sdata["title"],
-                "cues": sdata["cues"]
-            }
-            for sid, sdata in act_data["scenes"].items()
-            if sdata["cues"]
-        ]
-        if scenes_list:
-            acts_list.append({
-                "act_id": aid,
-                "title": act_data["title"],
-                "scenes": scenes_list
+        m = RE_SCENE.match(line)
+        if m:
+            # Chiudi eventuali blocchi aperti
+            commit_auto()
+            flush_manual()
+            current_scene_id   = int(m.group(1))
+            current_scene_name = (m.group(2) or "").strip()
+            script_lines_out.append({
+                "type": "scene_header",
+                "scene_id": current_scene_id,
+                "scene_name": current_scene_name,
             })
+            continue
+
+        # --- [MANUALE:] ---
+        m = RE_MANUAL.match(line)
+        if m:
+            commit_auto()
+            flush_manual()
+            in_manual_block = True
+            manual_desc     = m.group(1).strip()
+            manual_cams     = []
+            script_lines_out.append({"type": "manual_desc", "text": manual_desc})
+            continue
+
+        # --- [CAMx:] ---
+        m = RE_CAM.match(line)
+        if m:
+            cam_id   = int(m.group(1))
+            cam_text = m.group(2).strip()
+            if in_manual_block:
+                manual_cams.append({"cam": cam_id, "text": cam_text})
+            else:
+                # Cue automatico: collegato al testo trigger corrente
+                auto_cams.append({"cam": cam_id, "text": cam_text})
+            continue
+
+        # --- Qualsiasi altra riga: chiude blocchi cam aperti ---
+        # Prima chiudi manuale se non è [CAMx:]
+        if in_manual_block:
+            flush_manual()
+
+        # Chiudi eventuale cue automatico precedente
+        if auto_cams:
+            commit_auto()
+        elif pending_trigger_text is not None:
+            flush_auto()
+
+        # --- Personaggio (tutto maiuscolo) ---
+        if is_character(line):
+            pending_char         = line
+            pending_trigger_text = None
+            auto_cams            = []
+            script_lines_out.append({"type": "character", "text": line})
+            continue
+
+        # --- Testo dialogo/narratore ---
+        # Se c'è un personaggio in attesa, questo è il suo testo trigger
+        if pending_char and pending_trigger_text is None:
+            pending_trigger_text = line
+        elif pending_trigger_text:
+            # Seconda riga di dialogo: commit del precedente, nuova riga trigger
+            commit_auto()
+            pending_trigger_text = line
+
+        script_lines_out.append({"type": "dialogue", "text": line, "char": pending_char or ""})
+
+    # Chiudi eventuali blocchi aperti a fine file
+    if auto_cams:
+        commit_auto()
+    flush_manual()
+
+    # Indice scene
+    scenes = {}
+    for cue in cues:
+        sid = cue["scene_id"]
+        if sid not in scenes:
+            scenes[sid] = cue["scene_name"]
 
     return {
         "metadata": {
-            "title": title or "Spettacolo",
-            "date": date or "",
-            "location": location or "",
-            "cameras": CAMERAS,
-            "version": "1.0"
+            "title":    title or "Copione",
+            "date":     date,
+            "location": location,
+            "scenes":   [{"scene_id": k, "scene_name": v} for k, v in sorted(scenes.items())],
         },
-        "acts": acts_list
+        "script_lines": script_lines_out,
+        "cues": cues,
     }
 
 
 # ---------------------------------------------------------------------------
-# Sommario
-# ---------------------------------------------------------------------------
-def print_summary(script: dict):
-    meta = script["metadata"]
-    all_cues = [
-        cue
-        for act in script["acts"]
-        for scene in act["scenes"]
-        for cue in scene["cues"]
-    ]
-    auto   = sum(1 for c in all_cues if c["trigger"]["type"] == "line")
-    manual = len(all_cues) - auto
-
-    print(f"\n✅ Copione convertito con successo!")
-    print(f"   Titolo:       {meta['title']}")
-    print(f"   Data/Luogo:   {meta['date']} — {meta['location']}")
-    print(f"   Atti:         {len(script['acts'])}")
-    print(f"   Cue totali:   {len(all_cues)} ({auto} automatici, {manual} manuali)\n")
-
-    for act in script["acts"]:
-        print(f"  📖 [{act['act_id']}] {act['title']}")
-        for scene in act["scenes"]:
-            print(f"     🎬 [{scene['scene_id']}] {scene['title']} — {len(scene['cues'])} cue")
-            for cue in scene["cues"]:
-                cams = ", ".join(str(i["camera"]) for i in cue["instructions"])
-                trigger = (
-                    f'"{cue["trigger"]["text"][:50]}"'
-                    if cue["trigger"]["text"]
-                    else "[MANUALE]"
-                )
-                print(f"        [{cue['cue_id']}] CAM {cams} | {trigger}")
-    print()
-
-
-# ---------------------------------------------------------------------------
-# Entrypoint
+# CLI
 # ---------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(
-        description="TV Intercom — Convertitore copione",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Formato nel documento:
-  PERSONAGGIO
-  Testo della battuta.
-  [CAM1: istruzione camera 1]
-  [CAM2: istruzione camera 2]
-
-  ATTO 2
-  SCENA 3 — Titolo scena
-
-  [MANUALE: descrizione]
-  [CAM4: istruzione manuale]
-
-Esempi:
-  python doc_to_script.py --input copione.txt --output script-parser/script.json
-  python doc_to_script.py --input copione.txt --title "Romeo e Giulietta" --date "2026-06-15"
-  python doc_to_script.py --interactive --output script-parser/script.json
-        """
-    )
-    parser.add_argument("--input",       type=str, help="File testo copione")
-    parser.add_argument("--output",      type=str, default="script.json")
-    parser.add_argument("--interactive", action="store_true")
-    parser.add_argument("--title",       type=str, default="")
-    parser.add_argument("--date",        type=str, default="")
-    parser.add_argument("--location",    type=str, default="")
-    parser.add_argument("--preview",     action="store_true", help="Stampa JSON senza salvare")
+    parser = argparse.ArgumentParser(description="Converti copione testo → JSON")
+    parser.add_argument("--input",       "-i", help="File testo input")
+    parser.add_argument("--output",      "-o", default="script.json", help="File JSON output")
+    parser.add_argument("--title",       "-t", default="", help="Titolo (default: prima riga)")
+    parser.add_argument("--date",        "-d", default="", help="Data evento")
+    parser.add_argument("--location",    "-l", default="", help="Luogo")
+    parser.add_argument("--interactive", action="store_true", help="Incolla testo interattivo")
+    parser.add_argument("--preview",     action="store_true", help="Mostra riepilogo senza salvare")
     args = parser.parse_args()
 
     if args.interactive:
-        print("Incolla il copione (termina con una riga 'END'):")
-        lines = []
-        while True:
-            try:
-                line = input()
-                if line.strip() == "END":
-                    break
-                lines.append(line)
-            except EOFError:
-                break
-        text = "\n".join(lines)
+        print("Incolla il testo del copione, poi premi Ctrl+D (Linux/Mac) o Ctrl+Z (Windows):")
+        text = sys.stdin.read()
     elif args.input:
         text = Path(args.input).read_text(encoding="utf-8")
     else:
@@ -288,16 +255,27 @@ Esempi:
         sys.exit(1)
 
     script = parse_script(text, args.title, args.date, args.location)
+    meta   = script["metadata"]
+    cues   = script["cues"]
+    auto   = [c for c in cues if c["trigger"]["type"] == "line"]
+    manual = [c for c in cues if c["trigger"]["type"] == "manual"]
+
+    print(f"\n{'='*50}")
+    print(f"  {meta['title']}")
+    print(f"{'='*50}")
+    print(f"  Scene:   {len(meta['scenes'])}")
+    print(f"  Cue tot: {len(cues)}  (auto: {len(auto)}, manuali: {len(manual)})")
+    for s in meta["scenes"]:
+        sc = [c for c in cues if c["scene_id"] == s["scene_id"]]
+        print(f"  SCENA {s['scene_id']} — {s['scene_name'] or '—'}  ({len(sc)} cue)")
 
     if args.preview:
-        print(json.dumps(script, indent=2, ensure_ascii=False))
+        print("\n[PREVIEW — file non salvato]")
         return
 
     out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(script, indent=2, ensure_ascii=False), encoding="utf-8")
-    print_summary(script)
-    print(f"💾 Salvato in: {out}")
+    print(f"\n✓ Salvato in: {out.resolve()}")
 
 
 if __name__ == "__main__":
