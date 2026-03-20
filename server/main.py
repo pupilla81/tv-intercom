@@ -457,7 +457,8 @@ async def api_tts_test(text: str = None):
 
 @app.get("/api/audio/devices")
 async def api_audio_devices():
-    """Lista le periferiche audio di input disponibili sul server."""
+    """Lista le periferiche audio di input disponibili sul server.
+    Restituisce lista vuota se sounddevice non è installato (es. VPS headless)."""
     try:
         import sounddevice as sd
         devices = sd.query_devices()
@@ -473,8 +474,24 @@ async def api_audio_devices():
                     "is_default": i == default_input,
                 })
         return {"devices": inputs}
+    except ImportError:
+        # sounddevice non installato — normale su VPS headless
+        return {"devices": [], "note": "sounddevice non disponibile sul server"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"devices": [], "note": str(e)}
+
+
+@app.post("/api/tts/pregenerate")
+async def api_tts_pregenerate():
+    """Rigenera tutti gli audio TTS per il copione corrente."""
+    if not state.tts:
+        raise HTTPException(status_code=400, detail="TTS non configurato")
+    if not state.script_loaded or not state.all_cues:
+        raise HTTPException(status_code=400, detail="Nessun copione caricato")
+    loop = asyncio.get_event_loop()
+    stats = await loop.run_in_executor(None, state.tts.pregenerate_all, state.all_cues)
+    log.info(f"TTS pregenerate: {stats}")
+    return {"ok": True, **stats}
 
 class ConvertScriptRequest(BaseModel):
     text: str
