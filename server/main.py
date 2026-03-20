@@ -604,6 +604,43 @@ async def api_tts_voices():
     voices = state.tts.list_voices()
     return {"voices": voices}
 
+
+class TTSConfigRequest(BaseModel):
+    voice_id: Optional[str] = None
+    stability: Optional[float] = None
+    similarity_boost: Optional[float] = None
+    style: Optional[float] = None
+    use_speaker_boost: Optional[bool] = None
+
+@app.post("/api/tts/config")
+async def api_tts_config(req: TTSConfigRequest):
+    """Applica la configurazione TTS al motore in esecuzione."""
+    if not state.tts:
+        raise HTTPException(status_code=400, detail="TTS non configurato")
+    if req.voice_id:
+        state.tts.voice_id = req.voice_id
+        # Svuota la cache in memoria (non su disco) — la nuova voce genererà nuovi audio
+        state.tts._cache.clear()
+        log.info(f"TTS voce aggiornata: {req.voice_id}")
+    if req.stability is not None:
+        state.tts._settings_override = getattr(state.tts, '_settings_override', {})
+        state.tts._settings_override['stability'] = req.stability
+    if req.similarity_boost is not None:
+        state.tts._settings_override = getattr(state.tts, '_settings_override', {})
+        state.tts._settings_override['similarity_boost'] = req.similarity_boost
+    if req.style is not None:
+        state.tts._settings_override = getattr(state.tts, '_settings_override', {})
+        state.tts._settings_override['style'] = req.style
+    if req.use_speaker_boost is not None:
+        state.tts._settings_override = getattr(state.tts, '_settings_override', {})
+        state.tts._settings_override['use_speaker_boost'] = req.use_speaker_boost
+    # Applica gli override alle impostazioni del motore
+    if hasattr(state.tts, '_settings_override') and state.tts._settings_override:
+        from tts_engine import TTS_SETTINGS
+        for k, v in state.tts._settings_override.items():
+            TTS_SETTINGS[k] = v
+    return {"ok": True, "voice_id": state.tts.voice_id}
+
 class RegenerateRequest(BaseModel):
     text: str
 

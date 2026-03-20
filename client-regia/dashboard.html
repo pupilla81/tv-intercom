@@ -936,7 +936,7 @@ async function convertScript() {
     const r=await fetch(`${S}/api/script/convert`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({text:t,title:document.getElementById('cv-title').value,date:document.getElementById('cv-date').value})});
     const d=await r.json();
-    if(d.ok) { toast(`${d.title} — ${d.cues_total} cue`,'g'); closeModal('conv'); loadCues(); pollStatus(); }
+    if(d.ok) { toast(`${d.title} — ${d.cues_total} cue`,'g'); closeModal('conv'); loadCues(); pollStatus(); refreshScripts(); }
     else toast(d.detail||'Errore','e');
   } catch(e) { toast('Errore rete','e'); }
 }
