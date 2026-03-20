@@ -226,6 +226,83 @@ async def api_load_script(req: LoadScriptRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+@app.get("/api/scripts")
+async def api_scripts():
+    """Lista i file JSON copione disponibili nella cartella script-parser."""
+    script_dir = Path(__file__).parent.parent / "script-parser"
+    files = sorted([f.name for f in script_dir.glob("*.json")])
+    return {"files": files}
+
+
+@app.get("/api/script/download")
+async def api_script_download():
+    """Scarica il file script.json corrente."""
+    from fastapi.responses import FileResponse
+    script_path = Path(__file__).parent.parent / "script-parser" / "script.json"
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail="Nessun copione attivo (script.json non trovato)")
+    return FileResponse(
+        str(script_path),
+        media_type="application/json",
+        filename="copione.json",
+    )
+
+
+@app.post("/api/script/upload")
+async def api_script_upload(file: bytes = None):
+    """Riceve un file JSON copione caricato dal client e lo carica nel server."""
+    from fastapi import UploadFile, File
+    raise HTTPException(status_code=400, detail="Usa /api/script/upload-file")
+
+
+from fastapi import UploadFile, File
+
+@app.post("/api/script/upload-file")
+async def api_script_upload_file(file: UploadFile = File(...)):
+    """Riceve un file JSON dal browser, lo salva e lo carica nel server."""
+    try:
+        content = await file.read()
+        script = json.loads(content)
+
+        # Salva come script.json
+        script_path = Path(__file__).parent.parent / "script-parser" / "script.json"
+        script_path.write_bytes(content)
+
+        # Carica con il loader appropriato
+        # Prova prima il nuovo formato, poi il vecchio
+        try:
+            meta, cues = _load_new_format(script)
+            if not cues:
+                raise ValueError("Nessun cue trovato")
+            state.metadata = meta
+            state.all_cues = cues
+            state.script_loaded = True
+            auto = [c for c in cues if c.trigger.type == "line"]
+            state.engine = CueEngine(auto, on_cue_fired=on_cue_fired)
+            if state.tts:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, state.tts.pregenerate_all, cues)
+        except Exception:
+            meta, cues = await load_script_file(str(script_path))
+
+        auto   = [c for c in state.all_cues if c.trigger.type == "line"]
+        manual = [c for c in state.all_cues if c.trigger.type != "line"]
+
+        await notify_directors({"type": "script_loaded", "metadata": state.metadata})
+        return {
+            "ok": True,
+            "title": state.metadata.get("title", ""),
+            "cues_total": len(state.all_cues),
+            "cues_auto": len(auto),
+            "cues_manual": len(manual),
+        }
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="File non valido — deve essere un JSON")
+    except Exception as e:
+        log.exception("Errore upload script")
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.get("/api/status")
 async def api_status():
     auto = get_auto_cues(state.all_cues) if state.script_loaded else []

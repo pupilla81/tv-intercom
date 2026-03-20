@@ -583,15 +583,16 @@ input[type=range].sl::-webkit-slider-thumb {
 </div>
 </div>
 
-<!-- MODAL: Load -->
+<!-- MODAL: Upload JSON da PC -->
 <div class="modal-overlay" id="modal-load">
   <div class="modal">
-    <div class="modal-title">CARICA COPIONE — FILE JSON</div>
-    <div class="flbl" style="margin-bottom:5px;">PATH SUL SERVER</div>
-    <input type="text" class="inp" id="load-path" placeholder="/home/ubuntu/tv-intercom/script-parser/script.json"/>
+    <div class="modal-title">CARICA COPIONE — FILE JSON DAL PC</div>
+    <div class="flbl" style="margin-bottom:8px;">Seleziona un file .json generato in precedenza</div>
+    <input type="file" accept=".json" id="load-file" class="inp" style="cursor:pointer;padding:5px 9px;"/>
+    <div id="load-file-status" style="font-size:9px;color:var(--muted);min-height:14px;margin-top:6px;letter-spacing:1px;"></div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal('load')">ANNULLA</button>
-      <button class="btn a" onclick="loadScript()">CARICA</button>
+      <button class="btn a" onclick="uploadScriptFile()">CARICA</button>
     </div>
   </div>
 </div>
@@ -907,15 +908,25 @@ function toggleAS() {
 function openModal(id) { document.getElementById('modal-'+id).classList.add('open'); }
 function closeModal(id) { document.getElementById('modal-'+id).classList.remove('open'); }
 
-async function loadScript() {
-  const p = document.getElementById('load-path').value.trim();
-  if(!p) return;
+async function uploadScriptFile() {
+  const fileInput = document.getElementById('load-file');
+  const status = document.getElementById('load-file-status');
+  if (!fileInput.files.length) { status.textContent = 'Seleziona un file .json'; status.style.color='var(--red)'; return; }
+  const file = fileInput.files[0];
+  status.textContent = `Caricamento ${file.name}...`; status.style.color='var(--muted)';
+  const fd = new FormData();
+  fd.append('file', file);
   try {
-    const r=await fetch(`${S}/api/script/load`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})});
-    const d=await r.json();
-    if(d.ok) { toast(`Caricato: ${d.title}`,'g'); closeModal('load'); loadCues(); pollStatus(); }
-    else toast(d.detail||'Errore','e');
-  } catch(e) { toast('Errore rete','e'); }
+    const r = await fetch(`${S}/api/script/upload-file`, {method:'POST', body:fd});
+    const d = await r.json();
+    if (d.ok) {
+      toast(`Caricato: ${d.title} — ${d.cues_total} cue`, 'g');
+      status.textContent = `✓ ${d.title}`; status.style.color='var(--green)';
+      closeModal('load'); loadCues(); pollStatus();
+    } else {
+      status.textContent = d.detail||'Errore'; status.style.color='var(--red)';
+    }
+  } catch(e) { status.textContent='Errore rete'; status.style.color='var(--red)'; }
 }
 
 async function convertScript() {
@@ -1022,7 +1033,11 @@ async function refreshScripts() {
   try {
     const r = await fetch(`${S}/api/scripts`), d = await r.json();
     const sel = document.getElementById('server-scripts');
-    sel.innerHTML = (d.files||[]).map(f=>`<option value="${f}">${f}</option>`).join('') || '<option value="">Nessun file</option>';
+    if (d.files?.length) {
+      sel.innerHTML = d.files.map(f=>`<option value="${f}">${f}</option>`).join('');
+    } else {
+      sel.innerHTML = '<option value="">Nessun file JSON</option>';
+    }
   } catch(e) { addLog('Errore lista scripts: '+e.message,'err'); }
 }
 
@@ -1041,7 +1056,7 @@ async function loadServerScript() {
 async function downloadScript() {
   try {
     const r = await fetch(`${S}/api/script/download`);
-    if(!r.ok) { toast('Nessun copione disponibile','e'); return; }
+    if(!r.ok) { const d=await r.json().catch(()=>({detail:'Nessun copione attivo'})); toast(d.detail||'Nessun copione attivo','e'); return; }
     const blob = await r.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
