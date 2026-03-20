@@ -101,11 +101,20 @@ body::before {
 .tpane.active { display:flex; }
 
 /* ══════════════════════════════════════
-   HOME — 3 COLUMN LAYOUT
+   HOME — TOP/BOTTOM SPLIT
 ══════════════════════════════════════ */
 .home-grid {
-  display:grid; grid-template-columns:270px 1fr 250px;
+  display:grid;
+  grid-template-rows: 1fr 180px;
   width:100%; height:100%; overflow:hidden;
+}
+.home-top {
+  display:grid; grid-template-columns:260px 1fr 260px;
+  overflow:hidden; border-bottom:1px solid var(--border);
+  min-height:0;
+}
+.home-bottom {
+  display:flex; flex-direction:column; overflow:hidden; min-height:0;
 }
 .col { display:flex; flex-direction:column; overflow:hidden; }
 .col + .col { border-left:1px solid var(--border); }
@@ -398,114 +407,154 @@ input[type=range].sl::-webkit-slider-thumb {
 
 <!-- ══ TAB HOME ══ -->
 <div class="tpane active" id="pane-home" style="height:calc(100vh - 122px);">
-<div class="home-grid" style="height:100%;">
+<div class="home-grid">
 
-  <!-- COL 1 -->
-  <div class="col scrollable">
-    <div class="metrics">
-      <div class="metric"><div class="m-val a" id="m-cams">0</div><div class="m-lbl">CAM ONLINE</div></div>
-      <div class="metric"><div class="m-val" id="m-fired">0</div><div class="m-lbl">CUE SCATTATI</div></div>
-      <div class="metric"><div class="m-val" id="m-up">--</div><div class="m-lbl">UPTIME</div></div>
-    </div>
+  <!-- ── TOP ROW ── -->
+  <div class="home-top">
 
-    <!-- Cameras -->
-    <div class="sec">
-      <div class="sec-h">CAMERE <div class="spacer"></div><span class="tag" id="cam-tag">0/5 ONLINE</span></div>
-      <div class="cam-grid" id="camGrid"></div>
-    </div>
-
-    <!-- Script -->
-    <div class="sec">
-      <div class="sec-h">COPIONE <div class="spacer"></div><span class="tag" id="sc-tag">NESSUNO</span></div>
-      <div class="sec-b">
-        <div class="si">
-          <div class="si-row"><span class="si-lbl">TITOLO</span><span class="si-val a" id="si-title">—</span></div>
-          <div class="si-row"><span class="si-lbl">CUE TOTALI</span><span class="si-val" id="si-tot">—</span></div>
-          <div class="si-row"><span class="si-lbl">AUTO / MANUALI</span><span class="si-val" id="si-split">—</span></div>
-          <div class="si-row"><span class="si-lbl">SCATTATI</span><span class="si-val g" id="si-fired">0</span></div>
-          <div class="pbar"><div class="pfill" id="si-prog" style="width:0%"></div></div>
-        </div>
+    <!-- COL 1: Camere + STT -->
+    <div class="col scrollable">
+      <div class="metrics">
+        <div class="metric"><div class="m-val a" id="m-cams">0</div><div class="m-lbl">CAM ONLINE</div></div>
+        <div class="metric"><div class="m-val" id="m-fired">0</div><div class="m-lbl">CUE SCATTATI</div></div>
+        <div class="metric"><div class="m-val" id="m-up">--</div><div class="m-lbl">UPTIME</div></div>
       </div>
-      <div class="brow">
-        <button class="btn a" onclick="openModal('load')">CARICA FILE</button>
-        <button class="btn" onclick="openModal('conv')">INCOLLA TESTO</button>
-        <button class="btn r" id="btn-reset" onclick="resetEngine()" disabled>RESET</button>
-      </div>
-    </div>
 
-    <!-- STT -->
-    <div class="sec">
-      <div class="sec-h">STT — SPEECH TO TEXT</div>
-      <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
-        <div class="stt-bar">
-          <span style="font-size:18px;">🎤</span>
-          <div style="flex:1;">
-            <div class="stt-st" id="stt-st">INATTIVO</div>
-            <div class="stt-det" id="stt-det">ENGINE: DEEPGRAM</div>
+      <div class="sec">
+        <div class="sec-h">CAMERE <div class="spacer"></div><span class="tag" id="cam-tag">0/5 ONLINE</span></div>
+        <div class="cam-grid" id="camGrid"></div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-h">STT — SPEECH TO TEXT</div>
+        <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
+          <div class="stt-bar">
+            <span style="font-size:18px;">🎤</span>
+            <div style="flex:1;">
+              <div class="stt-st" id="stt-st">INATTIVO</div>
+              <div class="stt-det" id="stt-det">ENGINE: DEEPGRAM</div>
+            </div>
+          </div>
+          <div class="g2">
+            <div><div class="flbl">DISPOSITIVO</div><select class="inp" id="stt-dev"><option value="7">Device 7</option></select></div>
+            <div><div class="flbl">ENGINE</div><select class="inp" id="stt-eng"><option value="deepgram">Deepgram</option><option value="whisper">Whisper</option></select></div>
+          </div>
+          <div style="display:flex;gap:7px;">
+            <button class="btn g w" onclick="sttStart()">▶ AVVIA</button>
+            <button class="btn r w" onclick="sttStop()">■ FERMA</button>
+          </div>
+          <div style="font-size:9px;color:var(--muted);line-height:1.6;">
+            CLI: <span style="color:var(--blue)">python stt-tracker/stt_deepgram.py --device N</span>
           </div>
         </div>
-        <div class="g2">
-          <div><div class="flbl">DISPOSITIVO</div><select class="inp" id="stt-dev"><option value="7">Device 7</option></select></div>
-          <div><div class="flbl">ENGINE</div><select class="inp" id="stt-eng"><option value="deepgram">Deepgram</option><option value="whisper">Whisper</option></select></div>
+      </div>
+    </div>
+
+    <!-- COL 2: Copione -->
+    <div class="col scrollable">
+      <div class="sec">
+        <div class="sec-h">COPIONE <div class="spacer"></div><span class="tag" id="sc-tag">NESSUNO</span></div>
+        <div class="sec-b">
+          <div class="si">
+            <div class="si-row"><span class="si-lbl">TITOLO</span><span class="si-val a" id="si-title">—</span></div>
+            <div class="si-row"><span class="si-lbl">CUE TOTALI</span><span class="si-val" id="si-tot">—</span></div>
+            <div class="si-row"><span class="si-lbl">AUTO / MANUALI</span><span class="si-val" id="si-split">—</span></div>
+            <div class="si-row"><span class="si-lbl">SCATTATI</span><span class="si-val g" id="si-fired">0</span></div>
+            <div class="pbar"><div class="pfill" id="si-prog" style="width:0%"></div></div>
+          </div>
         </div>
-        <div style="display:flex;gap:7px;">
-          <button class="btn g w" onclick="sttStart()">▶ AVVIA</button>
-          <button class="btn r w" onclick="sttStop()">■ FERMA</button>
+        <div class="brow">
+          <button class="btn a" onclick="openModal('load')">CARICA FILE</button>
+          <button class="btn" onclick="openModal('conv')">INCOLLA TESTO</button>
+          <button class="btn r" id="btn-reset" onclick="resetEngine()" disabled>RESET</button>
         </div>
-        <div style="font-size:9px;color:var(--muted);line-height:1.6;">
-          CLI: <span style="color:var(--blue)">python stt-tracker/stt_deepgram.py --device N</span>
+      </div>
+
+      <!-- Selezione scena attiva -->
+      <div class="sec">
+        <div class="sec-h">SCENA ATTIVA</div>
+        <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:1px;">Seleziona per spostare il puntatore engine all'inizio della scena.</div>
+          <div class="g2">
+            <div>
+              <div class="flbl">ATTO</div>
+              <select class="inp" id="goto-act" onchange="buildSceneSelect()"><option value="">—</option></select>
+            </div>
+            <div>
+              <div class="flbl">SCENA</div>
+              <select class="inp" id="goto-scene"><option value="">—</option></select>
+            </div>
+          </div>
+          <button class="btn a w" onclick="gotoScene()">▶ VAI A QUESTA SCENA</button>
+          <div id="goto-status" style="font-size:9px;color:var(--muted);min-height:14px;letter-spacing:1px;"></div>
+        </div>
+      </div>
+
+      <!-- File JSON sul server + download -->
+      <div class="sec">
+        <div class="sec-h">FILE COPIONE SUL SERVER <div class="spacer"></div>
+          <button class="btn" style="padding:2px 7px;font-size:8px;" onclick="refreshScripts()">↺</button>
+        </div>
+        <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
+          <div style="display:flex;gap:6px;">
+            <select class="inp" id="server-scripts" style="flex:1;"><option value="">— rilevamento... —</option></select>
+            <button class="btn a" onclick="loadServerScript()">CARICA</button>
+          </div>
+          <button class="btn w" onclick="downloadScript()">⬇ SCARICA JSON CORRENTE</button>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- COL 2: Log -->
-  <div class="col" style="min-width:0;">
+    <!-- COL 3: TTS config + manual cues -->
+    <div class="col scrollable">
+
+      <div class="sec">
+        <div class="sec-h">TTS — CONFIGURAZIONE</div>
+        <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
+          <div>
+            <div class="flbl">VOCE ELEVENLABS</div>
+            <select class="inp" id="tts-voice"><option value="">— caricamento —</option></select>
+          </div>
+          <div>
+            <div class="flbl">MODELLO</div>
+            <select class="inp" id="tts-model"><option value="eleven_multilingual_v2">Multilingual v2</option><option value="eleven_monolingual_v1">Monolingual v1</option></select>
+          </div>
+          <div class="slider-w"><div class="flbl">STABILITÀ</div>
+            <div class="slider-r"><input type="range" class="sl" id="sl-stab" min="0" max="100" value="75" oninput="sv('sv-stab',this.value)"/><span class="sv" id="sv-stab">75%</span></div>
+          </div>
+          <div class="slider-w"><div class="flbl">SIMILARITY</div>
+            <div class="slider-r"><input type="range" class="sl" id="sl-sim" min="0" max="100" value="75" oninput="sv('sv-sim',this.value)"/><span class="sv" id="sv-sim">75%</span></div>
+          </div>
+          <div class="slider-w"><div class="flbl">STYLE</div>
+            <div class="slider-r"><input type="range" class="sl" id="sl-sty" min="0" max="100" value="0" oninput="sv('sv-sty',this.value)"/><span class="sv" id="sv-sty">0%</span></div>
+          </div>
+          <div>
+            <div class="flbl">TEST AUDIO</div>
+            <input type="text" class="inp" id="tts-test" value="Audio intercom attivo. Test microfono."/>
+          </div>
+        </div>
+        <div class="brow">
+          <button class="btn a" onclick="ttsSave()">APPLICA</button>
+          <button class="btn" onclick="ttsTest()">▶ TEST</button>
+          <button class="btn g" onclick="ttsPregen()" title="Rigenera tutti gli audio con la config attuale">⟳ RIGENERA TUTTI</button>
+        </div>
+        <div id="tts-status" style="font-size:9px;padding:4px 13px;color:var(--muted);min-height:18px;letter-spacing:1px;"></div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-h">CUE MANUALI</div>
+        <div class="sec-b" style="display:flex;flex-direction:column;gap:5px;" id="manualCues">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:1px;">Nessun copione caricato</div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /home-top -->
+
+  <!-- ── BOTTOM ROW: Log ── -->
+  <div class="home-bottom">
     <div class="sec-h" style="flex-shrink:0;">LOG EVENTI <div class="spacer"></div><button class="btn" style="padding:2px 9px;font-size:8px;" onclick="clearLog()">CLEAR</button></div>
-    <div class="log-scroll" id="logArea"></div>
-  </div>
-
-  <!-- COL 3: TTS + Manual cues -->
-  <div class="col scrollable">
-
-    <div class="sec">
-      <div class="sec-h">TTS — CONFIGURAZIONE</div>
-      <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
-        <div>
-          <div class="flbl">VOCE ELEVENLABS</div>
-          <select class="inp" id="tts-voice"><option value="">— caricamento —</option></select>
-        </div>
-        <div>
-          <div class="flbl">MODELLO</div>
-          <select class="inp" id="tts-model"><option value="eleven_multilingual_v2">Multilingual v2</option><option value="eleven_monolingual_v1">Monolingual v1</option></select>
-        </div>
-        <div class="slider-w"><div class="flbl">STABILITÀ</div>
-          <div class="slider-r"><input type="range" class="sl" id="sl-stab" min="0" max="100" value="75" oninput="sv('sv-stab',this.value)"/><span class="sv" id="sv-stab">75%</span></div>
-        </div>
-        <div class="slider-w"><div class="flbl">SIMILARITY</div>
-          <div class="slider-r"><input type="range" class="sl" id="sl-sim" min="0" max="100" value="75" oninput="sv('sv-sim',this.value)"/><span class="sv" id="sv-sim">75%</span></div>
-        </div>
-        <div class="slider-w"><div class="flbl">STYLE</div>
-          <div class="slider-r"><input type="range" class="sl" id="sl-sty" min="0" max="100" value="0" oninput="sv('sv-sty',this.value)"/><span class="sv" id="sv-sty">0%</span></div>
-        </div>
-        <div>
-          <div class="flbl">TEST AUDIO</div>
-          <input type="text" class="inp" id="tts-test" value="Audio intercom attivo. Test microfono."/>
-        </div>
-      </div>
-      <div class="brow">
-        <button class="btn a" onclick="ttsTest()">▶ TEST</button>
-        <button class="btn g" onclick="ttsSave()">SALVA</button>
-      </div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-h">CUE MANUALI</div>
-      <div class="sec-b" style="display:flex;flex-direction:column;gap:5px;" id="manualCues">
-        <div style="font-size:9px;color:var(--muted);letter-spacing:1px;">Nessun copione caricato</div>
-      </div>
-    </div>
-
+    <div class="log-scroll" id="logArea" style="flex:1;min-height:0;overflow-y:auto;"></div>
   </div>
 
 </div>
@@ -585,7 +634,7 @@ let autoScroll = true;
 /* ══ INIT ══ */
 window.addEventListener('load', () => {
   buildCamGrid(); clock(); connectWS();
-  loadDevices(); loadVoices(); pollStatus();
+  loadDevices(); loadVoices(); pollStatus(); refreshScripts();
   setInterval(pollStatus, 5000);
 });
 
@@ -735,6 +784,7 @@ async function loadCues() {
     const r = await fetch(`${S}/api/cues`);
     cues = await r.json();
     renderCueList(); renderManualCues(); renderScript(); updateNext();
+    buildActSelect();
   } catch(e) { addLog('Errore cue: '+e.message,'err'); }
 }
 
@@ -773,8 +823,10 @@ function markFired(id) {
   const c = cues.find(x=>x.cue_id===id);
   if(c) c.fired=true;
   renderCueList(); renderManualCues();
-  const pill = document.querySelector(`.cue-pill[data-cue="${id}"]`);
-  if(pill) pill.className='cue-pill fired';
+  // Aggiorna TUTTE le pillole di questo cue (una per cam)
+  document.querySelectorAll(`.cue-pill[data-cue="${id}"]`).forEach(pill => {
+    pill.className='cue-pill fired';
+  });
 }
 
 function updateNext() {
@@ -814,7 +866,7 @@ function renderScript() {
     if(c.scene_id!==lastScene) { html+=`<div class="scene-hdr">SCENA ${c.scene_id}</div>`; lastScene=c.scene_id; }
     const isMan = c.type!=='line', fired=c.fired;
     const cams = (c.cameras||[]).map(n=>
-      `<span class="cue-pill ${isMan?'manual':'auto'} ${fired?'fired':''}" data-cue="${c.cue_id}" onclick="${isMan?`fireCue('${c.cue_id}')`:''}">`+
+      `<span class="cue-pill ${isMan?'manual':'auto'} ${fired?'fired':''}" data-cue="${c.cue_id}" onclick="fireCue('${c.cue_id}')">`+
       `<span class="cc">CAM${n}</span><span class="fi">▶</span></span>`
     ).join('');
     if(isMan) {
@@ -912,26 +964,123 @@ async function loadVoices() {
 }
 function sv(id, val) { document.getElementById(id).textContent=val+'%'; }
 
-async function ttsTest() {
-  const txt=document.getElementById('tts-test').value||'Test audio intercom.';
-  try {
-    const r=await fetch(`${S}/api/tts/test-audio?text=${encodeURIComponent(txt)}`);
-    if(!r.ok) { toast('Errore TTS','e'); return; }
-    const a=new Audio(URL.createObjectURL(await r.blob())); a.play();
-    toast('▶ Riproduzione audio','a');
-  } catch(e) { toast('Errore: '+e.message,'e'); }
+function setTTSStatus(msg, type='') {
+  const el = document.getElementById('tts-status');
+  el.textContent = msg;
+  el.style.color = type==='ok'?'var(--green)':type==='err'?'var(--red)':'var(--muted)';
 }
-function ttsSave() {
-  const cfg={
-    voice_id:document.getElementById('tts-voice').value,
-    model:document.getElementById('tts-model').value,
-    stability:document.getElementById('sl-stab').value/100,
-    similarity:document.getElementById('sl-sim').value/100,
-    style:document.getElementById('sl-sty').value/100,
+
+async function ttsSave() {
+  // 1. Applica la config al server (effetto immediato)
+  const cfg = {
+    voice_id: document.getElementById('tts-voice').value || null,
+    stability: document.getElementById('sl-stab').value/100,
+    similarity_boost: document.getElementById('sl-sim').value/100,
+    style: document.getElementById('sl-sty').value/100,
   };
-  localStorage.setItem('tts_cfg',JSON.stringify(cfg));
-  toast('Config TTS salvata','g');
-  addLog(`TTS: voce ${cfg.voice_id?.slice(0,8)}… stab:${cfg.stability}`,'ok');
+  try {
+    const r = await fetch(`${S}/api/tts/config`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(cfg)
+    });
+    const d = await r.json();
+    if(d.ok) {
+      setTTSStatus(`✓ Applicata — voce: ${d.voice_id?.slice(0,12)}…`, 'ok');
+      addLog(`TTS config applicata al server: voce ${d.voice_id?.slice(0,8)}`, 'ok');
+    } else setTTSStatus('Errore: '+d.detail, 'err');
+  } catch(e) { setTTSStatus('Errore rete', 'err'); }
+}
+
+async function ttsTest() {
+  // Prima applica la config corrente, poi testa
+  await ttsSave();
+  const txt = document.getElementById('tts-test').value||'Test audio intercom.';
+  try {
+    const r = await fetch(`${S}/api/tts/test-audio?text=${encodeURIComponent(txt)}`);
+    if(!r.ok) { setTTSStatus('Errore generazione audio','err'); return; }
+    const a = new Audio(URL.createObjectURL(await r.blob())); a.play();
+    setTTSStatus('▶ Riproduzione in corso…', 'ok');
+    toast('▶ Test TTS','a');
+  } catch(e) { setTTSStatus('Errore: '+e.message,'err'); }
+}
+
+async function ttsPregen() {
+  setTTSStatus('Rigenerazione in corso… (può richiedere tempo)', '');
+  try {
+    const r = await fetch(`${S}/api/tts/pregenerate`, {method:'POST'});
+    const d = await r.json();
+    if(d.ok) {
+      setTTSStatus(`✓ Rigenerati: ${d.generated} | cache: ${d.cached} | errori: ${d.errors}`, 'ok');
+      addLog(`TTS pregenerate: ${d.generated} gen, ${d.cached} cache, ${d.errors} err`, 'ok');
+    } else setTTSStatus('Errore: '+d.detail, 'err');
+  } catch(e) { setTTSStatus('Errore rete','err'); }
+}
+
+/* ══ SCRIPT LIST + DOWNLOAD ══ */
+async function refreshScripts() {
+  try {
+    const r = await fetch(`${S}/api/scripts`), d = await r.json();
+    const sel = document.getElementById('server-scripts');
+    sel.innerHTML = (d.files||[]).map(f=>`<option value="${f}">${f}</option>`).join('') || '<option value="">Nessun file</option>';
+  } catch(e) { addLog('Errore lista scripts: '+e.message,'err'); }
+}
+
+async function loadServerScript() {
+  const f = document.getElementById('server-scripts').value;
+  if(!f) return;
+  try {
+    const path = `script-parser/${f}`;
+    const r = await fetch(`${S}/api/script/load`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+    const d = await r.json();
+    if(d.ok) { toast(`Caricato: ${d.title}`,'g'); loadCues(); pollStatus(); }
+    else toast(d.detail||'Errore','e');
+  } catch(e) { toast('Errore rete','e'); }
+}
+
+async function downloadScript() {
+  try {
+    const r = await fetch(`${S}/api/script/download`);
+    if(!r.ok) { toast('Nessun copione disponibile','e'); return; }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'copione.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Download avviato','g');
+  } catch(e) { toast('Errore download','e'); }
+}
+
+/* ══ GOTO SCENE ══ */
+function buildActSelect() {
+  // Popola select atto da cues caricati
+  const acts = [...new Set(cues.map(c=>c.act_id))].sort((a,b)=>a-b);
+  const sel = document.getElementById('goto-act');
+  sel.innerHTML = '<option value="">—</option>' + acts.map(a=>`<option value="${a}">ATTO ${a}</option>`).join('');
+  document.getElementById('goto-scene').innerHTML = '<option value="">—</option>';
+}
+
+function buildSceneSelect() {
+  const act = parseInt(document.getElementById('goto-act').value);
+  const scenes = [...new Set(cues.filter(c=>c.act_id===act).map(c=>c.scene_id))].sort((a,b)=>a-b);
+  const sel = document.getElementById('goto-scene');
+  sel.innerHTML = '<option value="">—</option>' + scenes.map(s=>`<option value="${s}">SCENA ${s}</option>`).join('');
+}
+
+async function gotoScene() {
+  const act = parseInt(document.getElementById('goto-act').value);
+  const scene = parseInt(document.getElementById('goto-scene').value);
+  if(!act || !scene) return;
+  const el = document.getElementById('goto-status');
+  try {
+    const r = await fetch(`${S}/api/engine/goto`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({act_id:act,scene_id:scene})});
+    const d = await r.json();
+    if(d.ok) {
+      el.textContent = `✓ Puntatore → A${act}/S${scene} (idx ${d.pointer})`;
+      el.style.color = 'var(--green)';
+      addLog(`Engine goto: Atto ${act} Scena ${scene}`, 'ok');
+      await loadCues();
+    } else { el.textContent = d.detail; el.style.color='var(--red)'; }
+  } catch(e) { el.textContent='Errore rete'; el.style.color='var(--red)'; }
 }
 
 /* ══ LOG ══ */

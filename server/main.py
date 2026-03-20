@@ -664,6 +664,92 @@ async def api_conference_close():
     log.info("Conference chiusa")
     return {"ok": True}
 
+@app.get("/api/scripts")
+async def api_list_scripts():
+    """Lista i file JSON nella cartella script-parser — per selezione da dashboard."""
+    script_dir = Path(__file__).parent.parent / "script-parser"
+    files = sorted(script_dir.glob("*.json"))
+    return {"files": [f.name for f in files]}
+
+
+@app.get("/api/script/download")
+async def api_script_download():
+    """Scarica il file JSON del copione correntemente caricato."""
+    from fastapi.responses import FileResponse as FR
+    script_path = Path(__file__).parent.parent / "script-parser" / "script.json"
+    sample_path = Path(__file__).parent.parent / "script-parser" / "sample_script.json"
+    target = script_path if script_path.exists() else sample_path
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Nessun file copione trovato")
+    return FR(str(target), media_type="application/json",
+              headers={"Content-Disposition": f"attachment; filename={target.name}"})
+
+
+class TTSConfigRequest(BaseModel):
+    voice_id: Optional[str] = None
+    stability: Optional[float] = None
+    similarity_boost: Optional[float] = None
+    style: Optional[float] = None
+    use_speaker_boost: Optional[bool] = None
+
+@app.post("/api/tts/config")
+async def api_tts_config(req: TTSConfigRequest):
+    """Aggiorna voce e parametri TTS a runtime — effetto immediato sul prossimo audio generato."""
+    if not state.tts:
+        raise HTTPException(status_code=400, detail="TTS non configurato")
+    settings = {}
+    if req.stability       is not None: settings["stability"]        = req.stability
+    if req.similarity_boost is not None: settings["similarity_boost"] = req.similarity_boost
+    if req.style           is not None: settings["style"]            = req.style
+    if req.use_speaker_boost is not None: settings["use_speaker_boost"] = req.use_speaker_boost
+    state.tts.update_config(
+        voice_id=req.voice_id,
+        settings=settings if settings else None
+    )
+    return {"ok": True, "voice_id": state.tts.voice_id, "settings": state.tts.voice_settings}
+
+
+@app.post("/api/tts/pregenerate")
+async def api_tts_pregenerate():
+    """Rigenera tutti gli audio TTS per il copione corrente (utile dopo cambio voce/parametri)."""
+    if not state.tts:
+        raise HTTPException(status_code=400, detail="TTS non configurato")
+    if not state.script_loaded:
+        raise HTTPException(status_code=400, detail="Nessun copione caricato")
+    # Svuota la cache per forzare la rigenerazione
+    state.tts._cache.clear()
+    loop = asyncio.get_event_loop()
+    stats = await loop.run_in_executor(None, state.tts.pregenerate_all, state.all_cues)
+    log.info(f"TTS pregenerate: {stats}")
+    return {"ok": True, **stats}
+
+
+class GotoSceneRequest(BaseModel):
+    act_id: int
+    scene_id: int
+
+@app.post("/api/engine/goto")
+async def api_engine_goto(req: GotoSceneRequest):
+    """Sposta il puntatore dell'engine all'inizio della scena indicata senza scattare cue."""
+    if not state.engine:
+        raise HTTPException(status_code=400, detail="Engine non inizializzato")
+    # Trova il primo cue della scena
+    idx = next(
+        (i for i, c in enumerate(state.all_cues)
+         if c.act_id == req.act_id and c.scene_id == req.scene_id),
+        None
+    )
+    if idx is None:
+        raise HTTPException(status_code=404, detail=f"Scena A{req.act_id}/S{req.scene_id} non trovata")
+    state.engine.pointer = idx
+    # Reset fired per i cue dalla scena in poi (opzionale ma utile)
+    for c in state.all_cues[idx:]:
+        c.fired = False
+    await notify_directors({"type": "engine_goto", "act_id": req.act_id, "scene_id": req.scene_id, "pointer": idx})
+    log.info(f"Engine goto: A{req.act_id}/S{req.scene_id} → ptr={idx}")
+    return {"ok": True, "pointer": idx}
+
+
 # ---------------------------------------------------------------------------
 # Serve PWA operatore
 # ---------------------------------------------------------------------------
@@ -684,7 +770,7 @@ from fastapi.responses import FileResponse
 @app.get("/")
 async def dashboard():
     """Serve la Control Room dashboard."""
-    dashboard_path = Path(__file__).parent.parent / "client-regia" / "dashboard.html"
+    dashboard_path = Path(__file__).parent.parent / "tools" / "dashboard.html"
     if dashboard_path.exists():
         return FileResponse(str(dashboard_path))
-    return {"message": "TV Intercom Server running. Dashboard non trovata in client-regia/dashboard.html"}
+    return {"message": "TV Intercom Server running. Dashboard non trovata in tools/dashboard.html"}

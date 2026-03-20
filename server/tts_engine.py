@@ -47,10 +47,20 @@ class TTSEngine:
     def __init__(self, api_key: str, voice_id: str = DEFAULT_VOICE_ID):
         self.api_key = api_key
         self.voice_id = voice_id
-        self._cache: dict[str, bytes] = {}  # hash del testo → bytes WAV
+        self.voice_settings = dict(TTS_SETTINGS)  # copia d'istanza — aggiornabile a runtime
+        self._cache: dict[str, bytes] = {}
         self._client = httpx.Client(timeout=30.0)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         log.info(f"TTS Engine inizializzato | voce: {voice_id}")
+
+    def update_config(self, voice_id: str = None, settings: dict = None):
+        """Aggiorna voce e/o parametri a runtime senza riavviare il server."""
+        if voice_id:
+            self.voice_id = voice_id
+            log.info(f"TTS voce aggiornata: {voice_id}")
+        if settings:
+            self.voice_settings.update(settings)
+            log.info(f"TTS settings aggiornati: {settings}")
 
     def _text_hash(self, text: str) -> str:
         """Hash del testo per la cache."""
@@ -71,7 +81,7 @@ class TTSEngine:
                 json={
                     "text": text,
                     "model_id": TTS_MODEL,
-                    "voice_settings": TTS_SETTINGS,
+                    "voice_settings": self.voice_settings,
                 },
             )
             if resp.status_code == 200:
