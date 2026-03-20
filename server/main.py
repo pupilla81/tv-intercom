@@ -684,7 +684,7 @@ from fastapi.responses import FileResponse
 @app.get("/")
 async def dashboard():
     """Serve la Control Room dashboard."""
-    dashboard_path = Path(__file__).parent.parent / "tools" / "dashboard.html"
+    dashboard_path = Path(__file__).parent.parent / "client-regia" / "dashboard.html"
     if dashboard_path.exists():
         return FileResponse(str(dashboard_path))
-    return {"message": "TV Intercom Server running. Dashboard non trovata in tools/dashboard.html"}
+    return {"message": "TV Intercom Server running. Dashboard non trovata in client-regia/dashboard.html"}

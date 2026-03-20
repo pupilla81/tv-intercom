@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TV Intercom — Control Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700&display=swap"/>
+<style>
+:root {
+  --bg:        #07090c;
+  --bg2:       #0b0e14;
+  --surface:   #0f1318;
+  --panel:     #141920;
+  --border:    #1c2530;
+  --border2:   #253040;
+  --text:      #b8cad8;
+  --muted:     #3d5060;
+  --dim:       #243040;
+  --amber:     #ffb020;
+  --amber-dim: rgba(255,176,32,0.08);
+  --amber-glow:rgba(255,176,32,0.18);
+  --green:     #00e87a;
+  --green-dim: rgba(0,232,122,0.08);
+  --red:       #ff3333;
+  --red-dim:   rgba(255,51,51,0.08);
+  --blue:      #30a8ff;
+  --blue-dim:  rgba(48,168,255,0.08);
+  --white:     #e8f0f8;
+  --mono: 'Share Tech Mono', monospace;
+  --sans: 'Barlow Condensed', sans-serif;
+  --r: 4px;
+}
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100%; overflow:hidden; }
+body {
+  background:var(--bg); color:var(--text);
+  font-family:var(--mono); display:flex; flex-direction:column;
+}
+body::before {
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:9999;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.04) 2px,rgba(0,0,0,0.04) 4px);
+}
+
+/* ─── HEADER ─── */
+.hdr {
+  display:flex; align-items:center; gap:0;
+  height:44px; min-height:44px; flex-shrink:0;
+  border-bottom:1px solid var(--border2); background:var(--bg2); padding:0 18px;
+}
+.hdr-logo { font-family:var(--sans); font-weight:700; font-size:14px; letter-spacing:5px; color:var(--amber); margin-right:28px; }
+.hdr-logo span { color:var(--muted); font-weight:300; }
+.vsep { width:1px; height:20px; background:var(--border2); margin:0 16px; }
+.hled-group { display:flex; align-items:center; gap:5px; font-size:10px; letter-spacing:2px; }
+.hled { width:6px; height:6px; border-radius:50%; flex-shrink:0; background:var(--muted); }
+.hled.on  { background:var(--green); box-shadow:0 0 5px var(--green); }
+.hled.warn{ background:var(--amber); box-shadow:0 0 5px var(--amber); animation:blink 1s infinite; }
+.hled.err { background:var(--red); box-shadow:0 0 5px var(--red); }
+.hdr-space { flex:1; }
+.hdr-clock { font-size:17px; letter-spacing:3px; color:var(--amber); }
+.hdr-date  { font-size:9px; letter-spacing:2px; color:var(--muted); text-align:right; }
+
+/* ─── TABS ─── */
+.tabs {
+  display:flex; background:var(--bg2); border-bottom:1px solid var(--border2);
+  padding:0 18px; flex-shrink:0;
+}
+.tab {
+  font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:4px; text-transform:uppercase;
+  padding:9px 24px 8px; color:var(--muted); background:transparent; border:none;
+  border-bottom:2px solid transparent; cursor:pointer; transition:all .15s; position:relative; top:1px;
+}
+.tab:hover { color:var(--text); }
+.tab.active { color:var(--amber); border-bottom-color:var(--amber); }
+
+/* ─── TAB CONTENT ─── */
+.tpane { display:none; flex:1; overflow:hidden; min-height:0; }
+.tpane.active { display:flex; }
+
+/* ══════════════════════════════════════
+   HOME — 3 COLUMN LAYOUT
+══════════════════════════════════════ */
+.home-grid {
+  display:grid; grid-template-columns:270px 1fr 250px;
+  width:100%; height:100%; overflow:hidden;
+}
+.col { display:flex; flex-direction:column; overflow:hidden; }
+.col + .col { border-left:1px solid var(--border); }
+.col.scrollable { overflow-y:auto; }
+
+.sec { border-bottom:1px solid var(--border); flex-shrink:0; }
+.sec-h {
+  display:flex; align-items:center; gap:8px; padding:7px 13px;
+  background:var(--bg2); border-bottom:1px solid var(--border);
+  font-size:9px; letter-spacing:3px; color:var(--muted); text-transform:uppercase;
+}
+.sec-h .spacer { flex:1; }
+.tag { font-size:8px; letter-spacing:1px; padding:2px 6px; border-radius:2px; }
+.tag       { background:var(--surface); color:var(--muted); }
+.tag.green { background:var(--green-dim); color:var(--green); }
+.tag.amber { background:var(--amber-dim); color:var(--amber); }
+.tag.red   { background:var(--red-dim);   color:var(--red); }
+.sec-b { padding:11px 13px; }
+
+/* Metrics strip */
+.metrics { display:grid; grid-template-columns:1fr 1fr 1fr; background:var(--border); gap:1px; flex-shrink:0; }
+.metric { background:var(--surface); padding:9px 13px; }
+.m-val { font-family:var(--sans); font-size:20px; font-weight:700; color:var(--white); letter-spacing:1px; }
+.m-val.a { color:var(--amber); }
+.m-lbl { font-size:8px; letter-spacing:3px; color:var(--muted); margin-top:1px; }
+
+/* Cam grid */
+.cam-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding:11px 13px; }
+.ctile {
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--r);
+  padding:9px 11px; display:flex; flex-direction:column; gap:3px; position:relative; overflow:hidden;
+}
+.ctile::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--muted); }
+.ctile.online::before { background:var(--green); box-shadow:0 0 5px var(--green); }
+.ct-id { font-family:var(--sans); font-size:18px; font-weight:700; color:var(--muted); line-height:1; letter-spacing:1px; }
+.ctile.online .ct-id { color:var(--white); }
+.ct-st { font-size:8px; letter-spacing:3px; color:var(--muted); }
+.ctile.online .ct-st { color:var(--green); }
+.ct-cue { font-size:9px; color:var(--blue); min-height:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Script info */
+.si { display:flex; flex-direction:column; gap:7px; }
+.si-row { display:flex; justify-content:space-between; align-items:baseline; }
+.si-lbl { font-size:9px; letter-spacing:2px; color:var(--muted); }
+.si-val { font-size:12px; color:var(--white); }
+.si-val.a { color:var(--amber); }
+.si-val.g { color:var(--green); }
+.pbar { height:2px; background:var(--border); border-radius:1px; overflow:hidden; margin-top:3px; }
+.pfill { height:100%; background:var(--amber); border-radius:1px; transition:width .4s; }
+
+/* Input / button / form */
+.inp {
+  width:100%; background:var(--surface); border:1px solid var(--border2); border-radius:var(--r);
+  padding:7px 9px; font-family:var(--mono); font-size:11px; color:var(--text); outline:none; transition:border-color .15s;
+}
+.inp:focus { border-color:var(--amber); }
+.inp::placeholder { color:var(--muted); }
+select.inp {
+  cursor:pointer; -webkit-appearance:none; appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%233d5060'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 9px center; padding-right:26px;
+}
+.btn {
+  background:var(--surface); border:1px solid var(--border2); border-radius:var(--r);
+  padding:7px 14px; font-family:var(--mono); font-size:9px; letter-spacing:2px;
+  color:var(--muted); cursor:pointer; transition:all .12s; white-space:nowrap;
+}
+.btn:hover { border-color:var(--text); color:var(--text); }
+.btn.a  { border-color:var(--amber); color:var(--amber); }
+.btn.a:hover { background:var(--amber-dim); box-shadow:0 0 8px var(--amber-glow); }
+.btn.g  { border-color:var(--green); color:var(--green); }
+.btn.g:hover { background:var(--green-dim); }
+.btn.r  { border-color:var(--red); color:var(--red); }
+.btn.r:hover { background:var(--red-dim); }
+.btn.w  { width:100%; text-align:center; }
+.btn:disabled { opacity:.3; cursor:not-allowed; pointer-events:none; }
+.brow { display:flex; gap:7px; padding:0 13px 11px; flex-wrap:wrap; }
+
+/* STT panel */
+.stt-bar {
+  display:flex; align-items:center; gap:9px;
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:9px 11px;
+}
+.stt-st { font-size:12px; letter-spacing:1px; }
+.stt-st.active { color:var(--green); }
+.stt-det { font-size:8px; letter-spacing:2px; color:var(--muted); margin-top:2px; }
+.flbl { font-size:9px; letter-spacing:2px; color:var(--muted); margin-bottom:3px; }
+.g2 { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+
+/* TTS sliders */
+.slider-w { display:flex; flex-direction:column; gap:3px; }
+.slider-r { display:flex; align-items:center; gap:7px; }
+input[type=range].sl {
+  flex:1; -webkit-appearance:none; height:2px; background:var(--border2); border-radius:1px; outline:none; cursor:pointer;
+}
+input[type=range].sl::-webkit-slider-thumb {
+  -webkit-appearance:none; width:11px; height:11px; border-radius:50%; background:var(--amber); cursor:pointer;
+}
+.sv { font-size:10px; color:var(--amber); min-width:26px; text-align:right; }
+
+/* Log */
+.log-scroll { flex:1; overflow-y:auto; padding:7px 13px; min-height:0; }
+.le { display:flex; gap:9px; font-size:10px; line-height:1.7; }
+.lt { color:var(--dim); min-width:58px; flex-shrink:0; }
+.lm { flex:1; }
+.lm.ok   { color:var(--green); }
+.lm.warn { color:var(--amber); }
+.lm.err  { color:var(--red); }
+.lm.info { color:var(--blue); }
+.lm.muted{ color:var(--muted); }
+
+/* ══════════════════════════════════════
+   PROMPTER TAB
+══════════════════════════════════════ */
+.prompter-grid {
+  display:grid; grid-template-columns:1fr 290px;
+  width:100%; height:100%; overflow:hidden;
+}
+.script-view { display:flex; flex-direction:column; overflow:hidden; border-right:1px solid var(--border); }
+.sc-toolbar {
+  display:flex; align-items:center; gap:9px; padding:9px 15px;
+  border-bottom:1px solid var(--border); background:var(--bg2); flex-shrink:0;
+}
+.sc-title { font-family:var(--sans); font-size:13px; font-weight:700; letter-spacing:2px; color:var(--white); flex:1; }
+.scene-bdg {
+  font-size:8px; letter-spacing:3px; padding:3px 8px;
+  border:1px solid var(--border2); border-radius:2px; color:var(--muted);
+}
+.scene-bdg.active { border-color:var(--amber); color:var(--amber); background:var(--amber-dim); }
+
+.sc-scroll { flex:1; overflow-y:auto; padding:18px 22px; }
+
+/* Script blocks */
+.act-hdr {
+  font-family:var(--sans); font-size:10px; font-weight:700; letter-spacing:5px; text-transform:uppercase;
+  color:var(--muted); padding:20px 0 6px; border-top:1px solid var(--border); margin-top:14px;
+}
+.act-hdr:first-child { border-top:none; margin-top:0; padding-top:0; }
+.scene-hdr { font-family:var(--sans); font-size:16px; font-weight:600; letter-spacing:2px; color:var(--amber); padding:5px 0 14px; }
+.script-blk { margin-bottom:18px; }
+.char-ln { font-family:var(--sans); font-size:11px; font-weight:700; letter-spacing:4px; text-transform:uppercase; color:var(--blue); margin-bottom:3px; }
+.dial-txt { font-size:14px; line-height:1.8; color:var(--white); padding-left:11px; border-left:2px solid var(--border); }
+.script-blk.active-blk .dial-txt { border-left-color:var(--amber); }
+.script-blk.active-blk .char-ln { color:var(--amber); }
+
+.cue-pill {
+  display:inline-flex; align-items:center; gap:5px; margin:3px 2px;
+  padding:3px 9px; border-radius:3px; font-size:9px; letter-spacing:1px;
+  cursor:pointer; transition:all .12s; border:1px solid transparent; vertical-align:middle;
+}
+.cue-pill.auto   { background:var(--blue-dim); color:var(--blue); border-color:rgba(48,168,255,.2); }
+.cue-pill.manual { background:var(--amber-dim); color:var(--amber); border-color:rgba(255,176,32,.2); }
+.cue-pill.fired  { background:var(--green-dim); color:var(--green); border-color:rgba(0,232,122,.2); opacity:.55; }
+.cue-pill:hover:not(.fired) { filter:brightness(1.3); }
+.cue-pill .cc { font-family:var(--sans); font-weight:700; font-size:10px; }
+.fi { opacity:0; font-size:8px; transition:opacity .1s; }
+.cue-pill:hover:not(.fired) .fi { opacity:1; }
+
+.manual-blk {
+  background:var(--amber-dim); border:1px solid rgba(255,176,32,.15);
+  border-radius:var(--r); padding:7px 11px; margin:7px 0;
+}
+.manual-lbl { font-size:8px; letter-spacing:3px; color:var(--amber); margin-bottom:3px; }
+.manual-txt { font-size:12px; color:var(--text); }
+
+/* Cue panel right */
+.cue-panel { display:flex; flex-direction:column; overflow:hidden; }
+.cp-head {
+  padding:9px 13px; background:var(--bg2); border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+  font-size:9px; letter-spacing:3px; color:var(--muted); flex-shrink:0;
+}
+.ncb { padding:10px 13px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; }
+.ncb-lbl { font-size:8px; letter-spacing:3px; color:var(--muted); margin-bottom:3px; }
+.ncb-txt { font-size:11px; color:var(--amber); line-height:1.4; }
+.ncb-cams { display:flex; gap:3px; margin-top:5px; }
+
+.cue-list { flex:1; overflow-y:auto; }
+.ci {
+  padding:9px 13px; border-bottom:1px solid var(--border);
+  cursor:pointer; transition:background .1s; display:flex; flex-direction:column; gap:3px;
+}
+.ci:hover:not(.fired) { background:var(--surface); }
+.ci.next { background:var(--amber-dim); border-left:2px solid var(--amber); }
+.ci.fired { opacity:.35; }
+.ci-head { display:flex; align-items:center; gap:7px; }
+.ci-id { font-size:8px; letter-spacing:2px; color:var(--muted); }
+.ci-type { font-size:7px; letter-spacing:2px; padding:2px 5px; border-radius:2px; }
+.ci-type.auto  { background:var(--blue-dim); color:var(--blue); }
+.ci-type.manual{ background:var(--amber-dim); color:var(--amber); }
+.ci-type.fired { background:var(--green-dim); color:var(--green); }
+.ci-trigger { font-size:10px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ci-cams { display:flex; gap:3px; margin-top:2px; }
+.cam-chip { font-size:8px; letter-spacing:1px; padding:2px 5px; border-radius:2px; background:var(--surface); border:1px solid var(--border2); color:var(--muted); }
+.fire-btn {
+  width:100%; margin-top:3px; padding:4px;
+  background:transparent; border:1px solid var(--amber); border-radius:var(--r);
+  color:var(--amber); font-family:var(--mono); font-size:8px; letter-spacing:2px;
+  cursor:pointer; transition:all .12s;
+}
+.fire-btn:hover { background:var(--amber-dim); }
+
+/* ─── MODALS ─── */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:100;
+  display:none; align-items:center; justify-content:center;
+}
+.modal-overlay.open { display:flex; }
+.modal {
+  background:var(--panel); border:1px solid var(--border2); border-radius:6px;
+  padding:22px; width:520px; max-width:95vw; max-height:80vh; overflow-y:auto;
+}
+.modal-title {
+  font-family:var(--sans); font-size:13px; font-weight:700; letter-spacing:3px;
+  color:var(--amber); margin-bottom:14px; text-transform:uppercase;
+}
+.modal textarea {
+  width:100%; min-height:180px; resize:vertical;
+  background:var(--surface); border:1px solid var(--border2); border-radius:var(--r);
+  padding:9px; font-family:var(--mono); font-size:11px; color:var(--text); outline:none; line-height:1.6;
+}
+.modal textarea:focus { border-color:var(--amber); }
+.modal-foot { display:flex; justify-content:flex-end; gap:7px; margin-top:11px; }
+
+/* ─── TOAST ─── */
+.toast {
+  position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+  background:var(--panel); border:1px solid var(--border2); border-radius:var(--r);
+  padding:9px 18px; font-size:10px; letter-spacing:2px; color:var(--white);
+  z-index:200; opacity:0; transition:opacity .2s; pointer-events:none;
+}
+.toast.show { opacity:1; }
+.toast.a    { border-color:var(--amber); color:var(--amber); }
+.toast.g    { border-color:var(--green); color:var(--green); }
+.toast.e    { border-color:var(--red);   color:var(--red); }
+
+/* ─── SCROLLBARS ─── */
+::-webkit-scrollbar { width:3px; height:3px; }
+::-webkit-scrollbar-track { background:var(--bg); }
+::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+
+/* ─── ANIMATIONS ─── */
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+@keyframes cue-fx { 0%{background:rgba(255,176,32,.45)} 100%{background:transparent} }
+@keyframes slide-in { from{opacity:0;transform:translateY(-3px)} to{opacity:1;transform:translateY(0)} }
+.flash { animation:cue-fx .6s ease-out forwards; }
+.slide-in { animation:slide-in .18s ease-out forwards; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-logo">TV Intercom <span>// CONTROL ROOM</span></div>
+  <div class="vsep"></div>
+  <div class="hled-group">
+    <div class="hled" id="h-ws"></div>
+    <span id="h-ws-lbl" style="color:var(--muted)">CTRL</span>
+  </div>
+  <div class="vsep"></div>
+  <div class="hled-group">
+    <div class="hled" id="h-stt"></div>
+    <span id="h-stt-lbl" style="color:var(--muted)">STT</span>
+  </div>
+  <div class="vsep"></div>
+  <div class="hled-group">
+    <div class="hled" id="h-sc"></div>
+    <span id="h-sc-lbl" style="color:var(--muted)">COPIONE</span>
+  </div>
+  <div class="hdr-space"></div>
+  <div style="text-align:right;">
+    <div class="hdr-clock" id="clock">--:--:--</div>
+    <div class="hdr-date" id="dateline">---</div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab active" id="tab-home" onclick="sw('home')">HOME</button>
+  <button class="tab" id="tab-prompter" onclick="sw('prompter')">PROMPTER</button>
+</div>
+
+<!-- ══ TAB HOME ══ -->
+<div class="tpane active" id="pane-home" style="height:calc(100vh - 88px);">
+<div class="home-grid" style="height:100%;">
+
+  <!-- COL 1 -->
+  <div class="col scrollable">
+    <div class="metrics">
+      <div class="metric"><div class="m-val a" id="m-cams">0</div><div class="m-lbl">CAM ONLINE</div></div>
+      <div class="metric"><div class="m-val" id="m-fired">0</div><div class="m-lbl">CUE SCATTATI</div></div>
+      <div class="metric"><div class="m-val" id="m-up">--</div><div class="m-lbl">UPTIME</div></div>
+    </div>
+
+    <!-- Cameras -->
+    <div class="sec">
+      <div class="sec-h">CAMERE <div class="spacer"></div><span class="tag" id="cam-tag">0/5 ONLINE</span></div>
+      <div class="cam-grid" id="camGrid"></div>
+    </div>
+
+    <!-- Script -->
+    <div class="sec">
+      <div class="sec-h">COPIONE <div class="spacer"></div><span class="tag" id="sc-tag">NESSUNO</span></div>
+      <div class="sec-b">
+        <div class="si">
+          <div class="si-row"><span class="si-lbl">TITOLO</span><span class="si-val a" id="si-title">—</span></div>
+          <div class="si-row"><span class="si-lbl">CUE TOTALI</span><span class="si-val" id="si-tot">—</span></div>
+          <div class="si-row"><span class="si-lbl">AUTO / MANUALI</span><span class="si-val" id="si-split">—</span></div>
+          <div class="si-row"><span class="si-lbl">SCATTATI</span><span class="si-val g" id="si-fired">0</span></div>
+          <div class="pbar"><div class="pfill" id="si-prog" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="brow">
+        <button class="btn a" onclick="openModal('load')">CARICA FILE</button>
+        <button class="btn" onclick="openModal('conv')">INCOLLA TESTO</button>
+        <button class="btn r" id="btn-reset" onclick="resetEngine()" disabled>RESET</button>
+      </div>
+    </div>
+
+    <!-- STT -->
+    <div class="sec">
+      <div class="sec-h">STT — SPEECH TO TEXT</div>
+      <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
+        <div class="stt-bar">
+          <span style="font-size:18px;">🎤</span>
+          <div style="flex:1;">
+            <div class="stt-st" id="stt-st">INATTIVO</div>
+            <div class="stt-det" id="stt-det">ENGINE: DEEPGRAM</div>
+          </div>
+        </div>
+        <div class="g2">
+          <div><div class="flbl">DISPOSITIVO</div><select class="inp" id="stt-dev"><option value="7">Device 7</option></select></div>
+          <div><div class="flbl">ENGINE</div><select class="inp" id="stt-eng"><option value="deepgram">Deepgram</option><option value="whisper">Whisper</option></select></div>
+        </div>
+        <div style="display:flex;gap:7px;">
+          <button class="btn g w" onclick="sttStart()">▶ AVVIA</button>
+          <button class="btn r w" onclick="sttStop()">■ FERMA</button>
+        </div>
+        <div style="font-size:9px;color:var(--muted);line-height:1.6;">
+          CLI: <span style="color:var(--blue)">python stt-tracker/stt_deepgram.py --device N</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COL 2: Log -->
+  <div class="col" style="min-width:0;">
+    <div class="sec-h" style="flex-shrink:0;">LOG EVENTI <div class="spacer"></div><button class="btn" style="padding:2px 9px;font-size:8px;" onclick="clearLog()">CLEAR</button></div>
+    <div class="log-scroll" id="logArea"></div>
+  </div>
+
+  <!-- COL 3: TTS + Manual cues -->
+  <div class="col scrollable">
+
+    <div class="sec">
+      <div class="sec-h">TTS — CONFIGURAZIONE</div>
+      <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
+        <div>
+          <div class="flbl">VOCE ELEVENLABS</div>
+          <select class="inp" id="tts-voice"><option value="">— caricamento —</option></select>
+        </div>
+        <div>
+          <div class="flbl">MODELLO</div>
+          <select class="inp" id="tts-model"><option value="eleven_multilingual_v2">Multilingual v2</option><option value="eleven_monolingual_v1">Monolingual v1</option></select>
+        </div>
+        <div class="slider-w"><div class="flbl">STABILITÀ</div>
+          <div class="slider-r"><input type="range" class="sl" id="sl-stab" min="0" max="100" value="75" oninput="sv('sv-stab',this.value)"/><span class="sv" id="sv-stab">75%</span></div>
+        </div>
+        <div class="slider-w"><div class="flbl">SIMILARITY</div>
+          <div class="slider-r"><input type="range" class="sl" id="sl-sim" min="0" max="100" value="75" oninput="sv('sv-sim',this.value)"/><span class="sv" id="sv-sim">75%</span></div>
+        </div>
+        <div class="slider-w"><div class="flbl">STYLE</div>
+          <div class="slider-r"><input type="range" class="sl" id="sl-sty" min="0" max="100" value="0" oninput="sv('sv-sty',this.value)"/><span class="sv" id="sv-sty">0%</span></div>
+        </div>
+        <div>
+          <div class="flbl">TEST AUDIO</div>
+          <input type="text" class="inp" id="tts-test" value="Audio intercom attivo. Test microfono."/>
+        </div>
+      </div>
+      <div class="brow">
+        <button class="btn a" onclick="ttsTest()">▶ TEST</button>
+        <button class="btn g" onclick="ttsSave()">SALVA</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">CUE MANUALI</div>
+      <div class="sec-b" style="display:flex;flex-direction:column;gap:5px;" id="manualCues">
+        <div style="font-size:9px;color:var(--muted);letter-spacing:1px;">Nessun copione caricato</div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</div>
+
+<!-- ══ TAB PROMPTER ══ -->
+<div class="tpane" id="pane-prompter" style="height:calc(100vh - 88px);">
+<div class="prompter-grid">
+
+  <div class="script-view">
+    <div class="sc-toolbar">
+      <div class="sc-title" id="p-title">— Nessun copione —</div>
+      <div class="scene-bdg" id="scene-bdg">SCENA —</div>
+      <button class="btn" onclick="scrollToActive()">⊙</button>
+      <button class="btn g" id="btn-as" onclick="toggleAS()">AUTO ▼</button>
+    </div>
+    <div class="sc-scroll" id="scScroll">
+      <div style="padding:40px;text-align:center;color:var(--muted);font-size:11px;letter-spacing:2px;">CARICA UN COPIONE DALLA TAB HOME</div>
+    </div>
+  </div>
+
+  <div class="cue-panel">
+    <div class="cp-head">CUE QUEUE <button class="btn r" style="padding:2px 8px;font-size:8px;" onclick="resetEngine()">RESET</button></div>
+    <div class="ncb" id="ncb" style="display:none;">
+      <div class="ncb-lbl">PROSSIMO CUE</div>
+      <div class="ncb-txt" id="ncb-txt">—</div>
+      <div class="ncb-cams" id="ncb-cams"></div>
+    </div>
+    <div class="cue-list" id="cueList">
+      <div style="padding:18px 13px;color:var(--muted);font-size:9px;letter-spacing:1px;">Nessun copione caricato</div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- MODAL: Load -->
+<div class="modal-overlay" id="modal-load">
+  <div class="modal">
+    <div class="modal-title">CARICA COPIONE — FILE JSON</div>
+    <div class="flbl" style="margin-bottom:5px;">PATH SUL SERVER</div>
+    <input type="text" class="inp" id="load-path" placeholder="/home/ubuntu/tv-intercom/script-parser/script.json"/>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal('load')">ANNULLA</button>
+      <button class="btn a" onclick="loadScript()">CARICA</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Convert -->
+<div class="modal-overlay" id="modal-conv">
+  <div class="modal">
+    <div class="modal-title">INCOLLA COPIONE — TESTO LIBERO</div>
+    <div class="g2" style="margin-bottom:8px;">
+      <div><div class="flbl">TITOLO</div><input type="text" class="inp" id="cv-title" placeholder="Titolo copione"/></div>
+      <div><div class="flbl">DATA</div><input type="text" class="inp" id="cv-date" placeholder="2024-01-01"/></div>
+    </div>
+    <div class="flbl" style="margin-bottom:5px;">TESTO COPIONE</div>
+    <textarea id="cv-text" placeholder="ATTO 1&#10;SCENA 1 - Titolo&#10;&#10;PERSONAGGIO&#10;Battuta...&#10;[CAM1: istruzione]&#10;&#10;[MANUALE: cue regia]"></textarea>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal('conv')">ANNULLA</button>
+      <button class="btn a" onclick="convertScript()">CONVERTI E CARICA</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ══ STATE ══ */
+const S = window.location.origin;
+let ws = null, wsRt = null;
+let cues = [], status = {};
+let camsOnline = new Set();
+let autoScroll = true;
+
+/* ══ INIT ══ */
+window.addEventListener('load', () => {
+  buildCamGrid(); clock(); connectWS();
+  loadDevices(); loadVoices(); pollStatus();
+  setInterval(pollStatus, 5000);
+});
+
+/* ══ CLOCK ══ */
+function clock() {
+  function t() {
+    const n = new Date();
+    document.getElementById('clock').textContent = n.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    document.getElementById('dateline').textContent = n.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'short',year:'numeric'}).toUpperCase();
+  }
+  t(); setInterval(t, 1000);
+}
+
+/* ══ TABS ══ */
+function sw(t) {
+  ['home','prompter'].forEach(x => {
+    document.getElementById('tab-'+x).classList.toggle('active', x===t);
+    document.getElementById('pane-'+x).classList.toggle('active', x===t);
+  });
+}
+
+/* ══ WEBSOCKET ══ */
+function connectWS() {
+  const p = location.protocol==='https:'?'wss':'ws';
+  ws = new WebSocket(`${p}://${location.host}/ws/director`);
+  ws.onopen  = () => { led('ws','on','CTRL'); addLog('WebSocket connesso','ok'); if(wsRt) clearTimeout(wsRt); };
+  ws.onclose = () => { led('ws','off','CTRL'); addLog('WS disconnesso — retry...','warn'); wsRt=setTimeout(connectWS,3000); };
+  ws.onmessage = e => { try { onMsg(JSON.parse(e.data)); } catch(x){} };
+}
+
+function onMsg(m) {
+  switch(m.type) {
+    case 'init':
+      camsOnline = new Set(m.cameras_online||[]);
+      updateCams();
+      if(m.script_loaded) { led('sc','on','COPIONE'); pollStatus(); loadCues(); }
+      break;
+    case 'camera_connected':
+      camsOnline = new Set(m.cameras_online||[]);
+      updateCams(); addLog(`CAM ${m.camera} connessa`,'ok'); break;
+    case 'camera_disconnected':
+      camsOnline = new Set(m.cameras_online||[]);
+      updateCams(); addLog(`CAM ${m.camera} disconnessa`,'warn'); break;
+    case 'cue_fired':
+      onCueFired(m); break;
+    case 'script_loaded':
+      led('sc','on','COPIONE'); pollStatus(); loadCues();
+      toast(`Copione: ${m.metadata?.title||''}`, 'g'); break;
+    case 'stt_started':
+      led('stt','on','STT');
+      document.getElementById('stt-st').textContent='ATTIVO';
+      document.getElementById('stt-st').className='stt-st active';
+      document.getElementById('stt-det').textContent=`ENGINE: ${m.engine?.toUpperCase()} / DEV ${m.device}`;
+      addLog(`STT avviato — ${m.engine} dev ${m.device}`,'ok'); break;
+    case 'stt_stopped':
+      led('stt','off','STT');
+      document.getElementById('stt-st').textContent='INATTIVO';
+      document.getElementById('stt-st').className='stt-st';
+      addLog('STT fermato','warn'); break;
+    case 'engine_reset':
+      addLog('Engine resettato','warn'); loadCues(); pollStatus(); break;
+  }
+}
+
+function onCueFired(m) {
+  addLog(`🔔 CUE ${m.cue_id} conf:${Math.round(m.confidence*100)}% cam:${m.cameras?.join(',')||'?'}`, 'warn');
+  (m.cameras||[]).forEach(c => {
+    const el = document.getElementById(`ct-cue-${c}`);
+    if(el) el.textContent = m.cue_id;
+  });
+  markFired(m.cue_id); updateNext();
+  const blk = document.querySelector(`[data-cue="${m.cue_id}"]`);
+  if(blk) {
+    blk.classList.add('flash');
+    setTimeout(()=>blk.classList.remove('flash'), 600);
+    if(autoScroll) blk.scrollIntoView({behavior:'smooth',block:'center'});
+  }
+}
+
+/* ══ STATUS ══ */
+async function pollStatus() {
+  try { const r = await fetch(`${S}/api/status`); status = await r.json(); updateUI(); } catch(e){}
+}
+
+function updateUI() {
+  led('sc', status.script_loaded?'on':'off', 'COPIONE');
+  led('stt', status.stt_active?'on':'off', 'STT');
+  document.getElementById('m-cams').textContent = (status.cameras_connected||[]).length;
+  document.getElementById('m-fired').textContent = status.cues_fired||0;
+  document.getElementById('m-up').textContent = fmtUp(status.uptime_seconds||0);
+  if(status.script_loaded) {
+    document.getElementById('si-title').textContent = status.title||'—';
+    document.getElementById('si-tot').textContent = status.cues_total||0;
+    document.getElementById('si-split').textContent = `${status.cues_auto||0} / ${status.cues_manual||0}`;
+    document.getElementById('si-fired').textContent = status.cues_fired||0;
+    const pct = status.cues_total ? Math.round((status.cues_fired/status.cues_total)*100) : 0;
+    document.getElementById('si-prog').style.width = pct+'%';
+    document.getElementById('sc-tag').className = 'tag green';
+    document.getElementById('sc-tag').textContent = 'CARICATO';
+    document.getElementById('btn-reset').disabled = false;
+    document.getElementById('p-title').textContent = status.title||'Copione';
+  }
+  const n = (status.cameras_connected||[]).length;
+  document.getElementById('cam-tag').textContent = `${n}/5 ONLINE`;
+  document.getElementById('cam-tag').className = n>0?'tag green':'tag';
+  camsOnline = new Set(status.cameras_connected||[]);
+  updateCams();
+}
+
+/* ══ CAM GRID ══ */
+function buildCamGrid() {
+  const g = document.getElementById('camGrid');
+  for(let i=1;i<=5;i++) g.innerHTML += `
+    <div class="ctile" id="ct-${i}">
+      <div class="ct-id">CAM ${i}</div>
+      <div class="ct-st" id="ct-st-${i}">OFFLINE</div>
+      <div class="ct-cue" id="ct-cue-${i}">—</div>
+    </div>`;
+}
+function updateCams() {
+  for(let i=1;i<=5;i++) {
+    const t=document.getElementById(`ct-${i}`), s=document.getElementById(`ct-st-${i}`);
+    if(!t) continue;
+    if(camsOnline.has(i)) { t.classList.add('online'); s.textContent='ONLINE'; }
+    else { t.classList.remove('online'); s.textContent='OFFLINE'; }
+  }
+}
+
+/* ══ CUES ══ */
+async function loadCues() {
+  try {
+    const r = await fetch(`${S}/api/cues`);
+    cues = await r.json();
+    renderCueList(); renderManualCues(); renderScript(); updateNext();
+  } catch(e) { addLog('Errore cue: '+e.message,'err'); }
+}
+
+function renderCueList() {
+  const l = document.getElementById('cueList');
+  if(!cues.length) { l.innerHTML='<div style="padding:18px 13px;color:var(--muted);font-size:9px;">Nessun cue</div>'; return; }
+  l.innerHTML = cues.map(c => {
+    const tp = c.type==='line'?'auto':'manual';
+    const fired = c.fired;
+    const cams = (c.cameras||[]).map(n=>`<span class="cam-chip">C${n}</span>`).join('');
+    const trig = c.trigger_text?(c.trigger_text.length>34?c.trigger_text.slice(0,31)+'…':c.trigger_text):c.cue_id;
+    const fb = (!fired&&tp==='manual')?`<button class="fire-btn" onclick="fireCue('${c.cue_id}')">▶ ESEGUI</button>`:'';
+    return `<div class="ci ${fired?'fired':''}" id="ci-${c.cue_id}">
+      <div class="ci-head">
+        <span class="ci-id">${c.cue_id}</span>
+        <span class="ci-type ${fired?'fired':tp}">${fired?'SCATTATO':(tp==='auto'?'AUTO':'MANUALE')}</span>
+      </div>
+      <div class="ci-trigger">${trig}</div>
+      <div class="ci-cams">${cams}</div>${fb}
+    </div>`;
+  }).join('');
+}
+
+function renderManualCues() {
+  const el = document.getElementById('manualCues');
+  const man = cues.filter(c=>c.type!=='line');
+  if(!man.length) { el.innerHTML='<div style="font-size:9px;color:var(--muted);">Nessun cue manuale</div>'; return; }
+  el.innerHTML = man.map(c=>`
+    <button class="btn w ${c.fired?'':'a'}" style="text-align:left;padding:5px 9px;font-size:9px;letter-spacing:1px;${c.fired?'opacity:.4':''}"
+      onclick="fireCue('${c.cue_id}')" ${c.fired?'disabled':''}>
+      ▶ ${c.cue_id} — ${(c.trigger_text||'').slice(0,28)}
+    </button>`).join('');
+}
+
+function markFired(id) {
+  const c = cues.find(x=>x.cue_id===id);
+  if(c) c.fired=true;
+  renderCueList(); renderManualCues();
+  const pill = document.querySelector(`.cue-pill[data-cue="${id}"]`);
+  if(pill) pill.className='cue-pill fired';
+}
+
+function updateNext() {
+  const next = cues.find(c=>!c.fired);
+  const nb = document.getElementById('ncb');
+  if(!next) { nb.style.display='none'; return; }
+  nb.style.display='block';
+  document.getElementById('ncb-txt').textContent = next.trigger_text||next.cue_id;
+  document.getElementById('ncb-cams').innerHTML = (next.cameras||[]).map(n=>`<span class="cam-chip">C${n}</span>`).join('');
+  document.querySelectorAll('.ci.next').forEach(el=>el.classList.remove('next'));
+  const el = document.getElementById(`ci-${next.cue_id}`);
+  if(el) { el.classList.add('next'); el.scrollIntoView({block:'nearest'}); }
+}
+
+async function fireCue(id) {
+  try {
+    const r = await fetch(`${S}/api/cues/fire`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cue_id:id})});
+    if(r.ok) { toast(`CUE ${id} eseguito`,'a'); markFired(id); updateNext(); }
+    else { const d=await r.json(); toast(d.detail||'Errore','e'); }
+  } catch(e) { toast('Errore rete','e'); }
+}
+
+async function resetEngine() {
+  if(!confirm('Reset engine e tutti i cue?')) return;
+  await fetch(`${S}/api/engine/reset`,{method:'POST'});
+  toast('Engine resettato','a');
+  await loadCues(); await pollStatus();
+}
+
+/* ══ SCRIPT RENDERING ══ */
+function renderScript() {
+  const sc = document.getElementById('scScroll');
+  if(!cues.length) return;
+  let html='', lastAct=null, lastScene=null;
+  cues.forEach(c => {
+    if(c.act_id!==lastAct) { html+=`<div class="act-hdr">ATTO ${c.act_id}</div>`; lastAct=c.act_id; }
+    if(c.scene_id!==lastScene) { html+=`<div class="scene-hdr">SCENA ${c.scene_id}</div>`; lastScene=c.scene_id; }
+    const isMan = c.type!=='line', fired=c.fired;
+    const cams = (c.cameras||[]).map(n=>
+      `<span class="cue-pill ${isMan?'manual':'auto'} ${fired?'fired':''}" data-cue="${c.cue_id}" onclick="${isMan?`fireCue('${c.cue_id}')`:''}">`+
+      `<span class="cc">CAM${n}</span><span class="fi">▶</span></span>`
+    ).join('');
+    if(isMan) {
+      html+=`<div class="manual-blk" data-cue="${c.cue_id}">
+        <div class="manual-lbl">MANUALE — ${c.cue_id}</div>
+        <div>${cams}</div>
+        ${c.trigger_text?`<div class="manual-txt">${esc(c.trigger_text)}</div>`:''}
+      </div>`;
+    } else {
+      html+=`<div class="script-blk ${fired?'':'active-blk'}" data-cue="${c.cue_id}" id="blk-${c.cue_id}">
+        <div class="char-ln">TRIGGER STT</div>
+        <div class="dial-txt">${esc(c.trigger_text||c.cue_id)}</div>
+        <div style="margin-top:5px;">${cams}</div>
+      </div>`;
+    }
+  });
+  sc.innerHTML = html || '<div style="color:var(--muted);padding:20px;">Nessun contenuto</div>';
+}
+
+function esc(t) { return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function scrollToActive() {
+  const n = cues.find(c=>!c.fired);
+  if(!n) return;
+  const el = document.getElementById(`blk-${n.cue_id}`);
+  if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function toggleAS() {
+  autoScroll=!autoScroll;
+  const b=document.getElementById('btn-as');
+  b.style.color = autoScroll?'var(--green)':'var(--muted)';
+  b.style.borderColor = autoScroll?'var(--green)':'var(--muted)';
+}
+
+/* ══ SCRIPT LOAD ══ */
+function openModal(id) { document.getElementById('modal-'+id).classList.add('open'); }
+function closeModal(id) { document.getElementById('modal-'+id).classList.remove('open'); }
+
+async function loadScript() {
+  const p = document.getElementById('load-path').value.trim();
+  if(!p) return;
+  try {
+    const r=await fetch(`${S}/api/script/load`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})});
+    const d=await r.json();
+    if(d.ok) { toast(`Caricato: ${d.title}`,'g'); closeModal('load'); loadCues(); pollStatus(); }
+    else toast(d.detail||'Errore','e');
+  } catch(e) { toast('Errore rete','e'); }
+}
+
+async function convertScript() {
+  const t = document.getElementById('cv-text').value.trim();
+  if(!t) return;
+  try {
+    const r=await fetch(`${S}/api/script/convert`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:t,title:document.getElementById('cv-title').value,date:document.getElementById('cv-date').value})});
+    const d=await r.json();
+    if(d.ok) { toast(`${d.title} — ${d.cues_total} cue`,'g'); closeModal('conv'); loadCues(); pollStatus(); }
+    else toast(d.detail||'Errore','e');
+  } catch(e) { toast('Errore rete','e'); }
+}
+
+/* ══ STT ══ */
+async function loadDevices() {
+  try {
+    const r=await fetch(`${S}/api/audio/devices`), d=await r.json();
+    const sel=document.getElementById('stt-dev');
+    sel.innerHTML='';
+    (d.devices||[]).forEach(dev=>{
+      const o=document.createElement('option');
+      o.value=dev.index; o.textContent=`[${dev.index}] ${dev.name}`;
+      if(dev.is_default) o.selected=true;
+      sel.appendChild(o);
+    });
+    if(!d.devices?.length) sel.innerHTML='<option value="7">Device 7</option>';
+  } catch(e){}
+}
+async function sttStart() {
+  const dev=parseInt(document.getElementById('stt-dev').value), eng=document.getElementById('stt-eng').value;
+  await fetch(`${S}/api/stt/start`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:dev,engine:eng})});
+  toast('STT avviato','g');
+}
+async function sttStop() {
+  await fetch(`${S}/api/stt/stop`,{method:'POST'}); toast('STT fermato','a');
+}
+
+/* ══ TTS ══ */
+async function loadVoices() {
+  try {
+    const r=await fetch(`${S}/api/tts/voices`), d=await r.json();
+    const sel=document.getElementById('tts-voice');
+    sel.innerHTML='';
+    (d.voices||[]).forEach(v=>{ const o=document.createElement('option'); o.value=v.voice_id; o.textContent=`${v.name} (${v.category||'premade'})`; sel.appendChild(o); });
+    if(d.voices?.length) addLog(`${d.voices.length} voci TTS caricate`,'ok');
+  } catch(e) { document.getElementById('tts-voice').innerHTML='<option value="">ElevenLabs non configurato</option>'; }
+}
+function sv(id, val) { document.getElementById(id).textContent=val+'%'; }
+
+async function ttsTest() {
+  const txt=document.getElementById('tts-test').value||'Test audio intercom.';
+  try {
+    const r=await fetch(`${S}/api/tts/test-audio?text=${encodeURIComponent(txt)}`);
+    if(!r.ok) { toast('Errore TTS','e'); return; }
+    const a=new Audio(URL.createObjectURL(await r.blob())); a.play();
+    toast('▶ Riproduzione audio','a');
+  } catch(e) { toast('Errore: '+e.message,'e'); }
+}
+function ttsSave() {
+  const cfg={
+    voice_id:document.getElementById('tts-voice').value,
+    model:document.getElementById('tts-model').value,
+    stability:document.getElementById('sl-stab').value/100,
+    similarity:document.getElementById('sl-sim').value/100,
+    style:document.getElementById('sl-sty').value/100,
+  };
+  localStorage.setItem('tts_cfg',JSON.stringify(cfg));
+  toast('Config TTS salvata','g');
+  addLog(`TTS: voce ${cfg.voice_id?.slice(0,8)}… stab:${cfg.stability}`,'ok');
+}
+
+/* ══ LOG ══ */
+function addLog(msg,type='') {
+  const a=document.getElementById('logArea');
+  const t=new Date().toLocaleTimeString('it-IT');
+  const e=document.createElement('div'); e.className='le slide-in';
+  e.innerHTML=`<span class="lt">${t}</span><span class="lm ${type}">${msg}</span>`;
+  a.appendChild(e); a.scrollTop=a.scrollHeight;
+  while(a.children.length>200) a.removeChild(a.firstChild);
+}
+function clearLog() { document.getElementById('logArea').innerHTML=''; }
+
+/* ══ TOAST ══ */
+let tt=null;
+function toast(msg,type='') {
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.className=`toast ${type} show`;
+  if(tt) clearTimeout(tt);
+  tt=setTimeout(()=>{el.className='toast';},2400);
+}
+
+/* ══ HEADER LEDS ══ */
+function led(id,state,lbl) {
+  const l=document.getElementById(`h-${id}`), lb=document.getElementById(`h-${id}-lbl`);
+  if(!l||!lb) return;
+  l.className=`hled ${state}`;
+  lb.textContent=lbl;
+  lb.style.color=state==='on'?'var(--green)':state==='warn'?'var(--amber)':'var(--muted)';
+}
+
+/* ══ HELPERS ══ */
+function fmtUp(s) {
+  if(s<60) return s+'s';
+  if(s<3600) return Math.floor(s/60)+'m';
+  return Math.floor(s/3600)+'h'+Math.floor((s%3600)/60)+'m';
+}
+
+document.querySelectorAll('.modal-overlay').forEach(el=>{
+  el.addEventListener('click',e=>{ if(e.target===el) el.classList.remove('open'); });
+});
+</script>
+</body>
+</html>
