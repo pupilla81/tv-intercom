@@ -1,36 +1,23 @@
-## [0.9.0] - 2026-03-20 — Gestione copione, scene e fix endpoint
+## [0.10.0] - 2026-03-21 — STT browser, prompter testo completo, fix engine
 
 ### Aggiunto
-- `main.py`: endpoint `POST /api/engine/goto-scene` — sposta il puntatore STT all'inizio della scena selezionata
-- `main.py`: endpoint `DELETE /api/script/clear` — cancella il JSON del copione e tutta la cache TTS su disco + reset stato in memoria
-- `main.py`: endpoint `GET /api/scripts` — lista i file JSON disponibili in `script-parser/`
-- `main.py`: endpoint `GET /api/script/download` — scarica il JSON del copione attivo con nome file dal titolo
-- `main.py`: endpoint `POST /api/script/upload-file` — carica un JSON dal browser via multipart/form-data
-- `main.py`: endpoint `POST /api/tts/config` — aggiorna voce e parametri TTS (stability, similarity, style, speaker boost) a runtime
-- `main.py`: endpoint `POST /api/tts/pregenerate` — rigenera tutti gli audio TTS per il copione corrente
-- `main.py`: loader nativo `_load_new_format()` per il nuovo formato JSON (scene senza atti)
-- `tools/doc_to_script.py`: riscritto — solo scene (ATTO ignorato), titolo auto dalla prima riga, `scene_name` nel JSON, nome file dal titolo
+- `main.py`: `GET /api/stt/token` — restituisce API key Deepgram per uso browser
+- `main.py`: `GET /api/script/lines` — restituisce script_lines con cue risolti inline per il prompter
+- `main.py`: loader `_load_new_format` espone `script_lines` in `AppState`
+- `dashboard.html`: pannello STT con VU meter browser, enumerazione dispositivi locali, AVVIA AUTO (Deepgram JS), CLI ▾ con comando pronto e campo device number manuale
+- `dashboard.html`: prompter testo completo — personaggi, dialoghi, note regia, cue card inline cliccabili con istruzioni camera
 
 ### Modificato
-- `client-regia/dashboard.html`:
-  - Camera bar fissa tra topbar e tabs, visibile in tutti i tab
-  - Tasto INTERCOM ↗ spostato nella camera bar
-  - Pulsante 🗑 CANCELLA copione+cache TTS
-  - Selettore scena semplificato (niente più selettore atto)
-  - "Carica file" → upload JSON da PC (file picker)
-  - Lista copioni sul server aggiornata dopo ogni conversione
-  - `renderScript` senza intestazioni ATTO, solo SCENA con nome e anchor per scroll
-- `main.py`:
-  - `api_script_convert`: salva JSON con nome dal titolo (es. `passio_jesu_christi.json`)
-  - `api_audio/devices`: gestisce `ImportError` sounddevice, restituisce lista vuota su VPS headless invece di 500
-  - `api_cues`: espone `scene_id` e `scene_name` (rimosso `act_id`)
-  - `import re` aggiunto
-- `client-regia/intercom-board.html`: fix VU meter microfono regia — usa `getUserMedia` indipendente invece del track LiveKit mutato
+- `main.py`: `POST /api/stt/stop?source=browser` — non tocca `stt_active` e non notifica CLI quando a fermarsi è il browser
+- `main.py`: `POST /api/stt/chunk` — aggiunto try/except, restituisce sempre JSON valido
+- `main.py`: `_load_new_format` — aggiunto `match_threshold` al trigger (default `0.75`, gestisce `None`)
+- `tools/doc_to_script.py` — trigger auto include `match_threshold: 0.75`, trigger manuale include `match_threshold: None`
+- `client-regia/intercom-board.html`: fix `publishTrack` — rimossa opzione `muted:true` non supportata nelle versioni recenti di LiveKit, sostituita con publish + delay 300ms + mute esplicito (fix anche in operator-livekit.html)
+- `dashboard.html`: STT browser usa AudioWorklet 16kHz + fallback ScriptProcessor, MediaRecorder rimosso
 
 ### Fix
-- `POST /api/script/convert` → 400: loader nativo per nuovo formato JSON
-- `GET /api/script/download` → 404: endpoint aggiunto
-- `POST /api/tts/pregenerate` → 404: endpoint aggiunto
-- `POST /api/tts/config` → 404: endpoint aggiunto
-- `GET /api/audio/devices` → 500: gestione graceful su VPS senza sounddevice
-- VU meter regia non funzionante dopo LiveKit mute: fix con stream getUserMedia separato
+- `publishTrack {muted:true}` causava disconnect immediato da LiveKit — fix in intercom-board e operator-livekit
+- `match_threshold` mancante nel SimpleNamespace causava crash su ogni chunk STT
+- STT browser si fermava subito per loop `onclose→sttStopAuto` — fix con guard `sttActive=false` prima di `close()`
+- `stt_stopped` WebSocket interferiva con browser STT attivo — ora controlla `sttActive` prima di aggiornare UI
+- Vecchi JSON sul server con `match_threshold: null` ora gestiti con fallback `or 0.75`
