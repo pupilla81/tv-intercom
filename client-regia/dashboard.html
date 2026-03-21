@@ -1212,6 +1212,7 @@ async function sttStartAuto() {
     if (!stream) throw new Error('Impossibile accedere al microfono');
 
     // 3. Connetti a Deepgram via WebSocket
+    // Usiamo encoding=opus (webm/opus via MediaRecorder) — nessun ScriptProcessorNode
     sttDgWs = new WebSocket(
       'wss://api.deepgram.com/v1/listen?' +
       'language=it&model=nova-2&punctuate=true&interim_results=true' +
@@ -1221,20 +1222,21 @@ async function sttStartAuto() {
 
     sttDgWs.onopen = async () => {
       addLog('Deepgram connesso', 'ok');
-      // 4. Invia audio via ScriptProcessor (compatibile, no AudioWorklet)
-      sttAudioCtx = sttAudioCtx || new (window.AudioContext||window.webkitAudioContext)();
-      const src   = sttAudioCtx.createMediaStreamSource(stream);
-      sttProcessor = sttAudioCtx.createScriptProcessor(4096, 1, 1);
-      sttProcessor.onaudioprocess = (e) => {
-        if (sttDgWs?.readyState !== WebSocket.OPEN) return;
-        const f32  = e.inputBuffer.getChannelData(0);
-        // Converte float32 → int16 per Deepgram
-        const i16  = new Int16Array(f32.length);
-        for (let i=0; i<f32.length; i++) i16[i] = Math.max(-32768, Math.min(32767, f32[i]*32768));
-        sttDgWs.send(i16.buffer);
-      };
-      src.connect(sttProcessor);
-      sttProcessor.connect(sttAudioCtx.destination);
+
+      // 4. Invia audio via MediaRecorder (moderno, nessuna deprecazione)
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : '';
+
+      sttProcessor = new MediaRecorder(stream, mimeType ? {mimeType} : {});
+      sttProcessor.addEventListener('dataavailable', (e) => {
+        if (e.data.size > 0 && sttDgWs?.readyState === WebSocket.OPEN) {
+          sttDgWs.send(e.data);
+        }
+      });
+      sttProcessor.start(250); // invia chunk ogni 250ms
 
       // Notifica il server
       await fetch(`${S}/api/stt/start`, {method:'POST',headers:{'Content-Type':'application/json'},
@@ -1250,24 +1252,31 @@ async function sttStartAuto() {
     };
 
     sttDgWs.onmessage = async (e) => {
-      const msg = JSON.parse(e.data);
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type !== 'Results') return;
       const alt = msg.channel?.alternatives?.[0];
       if (!alt?.transcript) return;
       const text = alt.transcript.trim();
-      // Mostra trascrizione
-      document.getElementById('stt-transcript').textContent = text || '—';
-      // Invia chunk al server solo se finale
-      if (msg.is_final && text) {
+      if (!text) return;
+      // Mostra trascrizione live
+      document.getElementById('stt-transcript').textContent = text;
+      // Invia chunk finale al cue engine
+      if (msg.is_final) {
         await fetch(`${S}/api/stt/chunk`, {method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({text})});
+          body:JSON.stringify({text})}).catch(()=>{});
       }
     };
 
-    sttDgWs.onerror = (e) => { addLog('Deepgram errore WS','err'); sttStopAuto(); };
-    // Imposta sttActive=false PRIMA di chiamare close() per evitare il loop onclose→sttStopAuto
-    sttDgWs.onclose = () => { if(sttActive) { addLog('Deepgram disconnesso','warn'); sttStopAuto(); } };
+    sttDgWs.onerror = () => { addLog('Deepgram errore WebSocket','err'); sttStopAuto(); };
+    sttDgWs.onclose = () => { if(sttActive) { addLog('Deepgram disconnesso — riavvia STT','warn'); sttStopAuto(); } };
+
+  } catch(e) {
+    addLog('STT errore: '+e.message,'err');
+    btn.textContent='▶ AVVIA AUTO'; btn.className='btn g'; btn.disabled=false;
+  }
+}
 
   } catch(e) {
     addLog('STT errore: '+e.message,'err');
@@ -1276,10 +1285,13 @@ async function sttStartAuto() {
 }
 
 async function sttStopAuto() {
-  if (!sttActive && !sttDgWs) return; // già fermato, evita doppia chiamata
-  sttActive = false;                   // imposta subito per bloccare onclose loop
-  if (sttProcessor) { try{ sttProcessor.disconnect(); }catch(x){} sttProcessor=null; }
-  if (sttDgWs)      { sttDgWs.close(); sttDgWs=null; }
+  if (!sttActive && !sttDgWs) return; // già fermato
+  sttActive = false;                   // prima di tutto, blocca onclose loop
+  if (sttProcessor) {
+    try { sttProcessor.stop(); } catch(x) {}
+    sttProcessor = null;
+  }
+  if (sttDgWs) { sttDgWs.close(); sttDgWs = null; }
   sttStopVu();
   await fetch(`${S}/api/stt/stop`,{method:'POST'}).catch(()=>{});
   const btn = document.getElementById('btn-stt-auto');
