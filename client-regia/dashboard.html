@@ -201,6 +201,10 @@ select.inp {
 .stt-st { font-size:12px; letter-spacing:1px; }
 .stt-st.active { color:var(--green); }
 .stt-det { font-size:8px; letter-spacing:2px; color:var(--muted); margin-top:2px; }
+.stt-vu { width:80px; height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+.stt-vu-bar { height:100%; width:0%; border-radius:3px; background:var(--green); transition:width 0.05s; }
+.stt-vu-bar.warn { background:var(--amber); }
+.stt-vu-bar.hot  { background:var(--red); }
 .flbl { font-size:9px; letter-spacing:2px; color:var(--muted); margin-bottom:3px; }
 .g2 { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 
@@ -467,26 +471,72 @@ input[type=range].sl::-webkit-slider-thumb {
       </div>
 
       <div class="sec">
-        <div class="sec-h">STT — SPEECH TO TEXT</div>
-        <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
+        <div class="sec-h">
+          STT — SPEECH TO TEXT
+          <div class="spacer"></div>
+          <span class="tag" id="stt-mode-tag">BROWSER</span>
+        </div>
+        <div class="sec-b" style="display:flex;flex-direction:column;gap:8px;">
+
+          <!-- Stato + VU meter -->
           <div class="stt-bar">
             <span style="font-size:18px;">🎤</span>
             <div style="flex:1;">
               <div class="stt-st" id="stt-st">INATTIVO</div>
-              <div class="stt-det" id="stt-det">ENGINE: DEEPGRAM</div>
+              <div class="stt-det" id="stt-det">seleziona dispositivo</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+              <div style="font-size:8px;letter-spacing:2px;color:var(--muted)">INPUT</div>
+              <div class="stt-vu" id="stt-vu">
+                <div class="stt-vu-bar" id="stt-vu-bar"></div>
+              </div>
             </div>
           </div>
-          <div class="g2">
-            <div><div class="flbl">DISPOSITIVO</div><select class="inp" id="stt-dev"><option value="7">Device 7</option></select></div>
-            <div><div class="flbl">ENGINE</div><select class="inp" id="stt-eng"><option value="deepgram">Deepgram</option><option value="whisper">Whisper</option></select></div>
+
+          <!-- Dispositivo -->
+          <div>
+            <div class="flbl" style="margin-bottom:4px;">DISPOSITIVO DI INPUT</div>
+            <div style="display:flex;gap:6px;">
+              <select class="inp" id="stt-dev" style="flex:1;" onchange="sttDeviceChange()">
+                <option value="">— rilevamento... —</option>
+              </select>
+              <button class="btn" style="padding:6px 10px;" onclick="sttEnumDevices()" title="Aggiorna lista dispositivi">↺</button>
+            </div>
           </div>
-          <div style="display:flex;gap:7px;">
-            <button class="btn g w" onclick="sttStart()">▶ AVVIA</button>
-            <button class="btn r w" onclick="sttStop()">■ FERMA</button>
+
+          <!-- Trascrizione live -->
+          <div>
+            <div class="flbl" style="margin-bottom:4px;">TRASCRIZIONE LIVE</div>
+            <div id="stt-transcript" style="
+              background:var(--bg); border:1px solid var(--border); border-radius:var(--r);
+              padding:7px 9px; font-size:11px; color:var(--text); min-height:36px;
+              line-height:1.6; max-height:72px; overflow-y:auto; letter-spacing:.5px;
+            ">—</div>
           </div>
-          <div style="font-size:9px;color:var(--muted);line-height:1.6;">
-            CLI: <span style="color:var(--blue)">python stt-tracker/stt_deepgram.py --device N</span>
+
+          <!-- Pulsanti AUTO + CLI -->
+          <div style="display:flex;gap:6px;">
+            <button class="btn g" style="flex:1;" id="btn-stt-auto" onclick="sttToggleAuto()">▶ AVVIA AUTO</button>
+            <div style="position:relative;">
+              <button class="btn" id="btn-stt-cli" onclick="sttToggleCli()" title="Fallback CLI">CLI ▾</button>
+              <div id="stt-cli-drop" style="
+                display:none; position:absolute; right:0; top:110%; z-index:50;
+                background:var(--panel); border:1px solid var(--border2); border-radius:var(--r);
+                padding:10px 12px; width:340px; box-shadow:0 4px 16px rgba(0,0,0,.5);
+              ">
+                <div style="font-size:8px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">COMANDO CLI — incolla nel terminale</div>
+                <div id="stt-cli-cmd" style="
+                  font-size:10px; color:var(--blue); background:var(--bg);
+                  padding:7px 9px; border-radius:2px; border:1px solid var(--border);
+                  word-break:break-all; line-height:1.6; cursor:pointer;
+                " onclick="sttCopyCli()" title="Clicca per copiare">
+                  python stt-tracker/stt_deepgram.py --device 0 --server https://tvintercom.duckdns.org
+                </div>
+                <div style="font-size:8px;color:var(--muted);margin-top:5px;letter-spacing:1px;">Clicca sul comando per copiarlo</div>
+              </div>
+            </div>
           </div>
+
         </div>
       </div>
     </div>
@@ -668,7 +718,7 @@ let autoScroll = true;
 /* ══ INIT ══ */
 window.addEventListener('load', () => {
   buildCamGrid(); clock(); connectWS();
-  loadDevices(); loadVoices(); pollStatus(); refreshScripts();
+  loadVoices(); pollStatus(); refreshScripts();
   setInterval(pollStatus, 5000);
 });
 
@@ -1053,28 +1103,215 @@ async function convertScript() {
 }
 
 /* ══ STT ══ */
-async function loadDevices() {
+/* ══════════════════════════════════════════════════════════
+   STT BROWSER — Deepgram JS SDK + VU meter + CLI fallback
+══════════════════════════════════════════════════════════ */
+let sttActive     = false;
+let sttStream     = null;   // MediaStream mic
+let sttDgWs       = null;   // Deepgram WebSocket
+let sttAudioCtx   = null;
+let sttAnalyzer   = null;
+let sttVuInterval = null;
+let sttProcessor  = null;
+
+/* ── Enumera dispositivi dal browser ── */
+async function sttEnumDevices() {
   try {
-    const r=await fetch(`${S}/api/audio/devices`), d=await r.json();
-    const sel=document.getElementById('stt-dev');
-    sel.innerHTML='';
-    (d.devices||[]).forEach(dev=>{
-      const o=document.createElement('option');
-      o.value=dev.index; o.textContent=`[${dev.index}] ${dev.name}`;
-      if(dev.is_default) o.selected=true;
-      sel.appendChild(o);
-    });
-    if(!d.devices?.length) sel.innerHTML='<option value="7">Device 7</option>';
-  } catch(e){}
+    // Richiedi permesso mic per sbloccare la lista dispositivi
+    const tmp = await navigator.mediaDevices.getUserMedia({audio:true});
+    tmp.getTracks().forEach(t=>t.stop());
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs  = devices.filter(d=>d.kind==='audioinput');
+    const sel     = document.getElementById('stt-dev');
+    sel.innerHTML = inputs.map((d,i)=>
+      `<option value="${d.deviceId}">${d.label||'Microfono '+(i+1)}</option>`
+    ).join('');
+    if (!inputs.length) sel.innerHTML='<option value="default">Microfono default</option>';
+    addLog(`${inputs.length} dispositivi audio rilevati`,'ok');
+    sttUpdateCli();
+  } catch(e) {
+    addLog('Accesso microfono negato: '+e.message,'err');
+    document.getElementById('stt-dev').innerHTML='<option value="default">Microfono default</option>';
+  }
 }
-async function sttStart() {
-  const dev=parseInt(document.getElementById('stt-dev').value), eng=document.getElementById('stt-eng').value;
-  await fetch(`${S}/api/stt/start`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:dev,engine:eng})});
-  toast('STT avviato','g');
+
+function sttDeviceChange() {
+  sttUpdateCli();
+  // Avvia VU meter automaticamente quando si seleziona un dispositivo
+  sttStartVu();
 }
-async function sttStop() {
-  await fetch(`${S}/api/stt/stop`,{method:'POST'}); toast('STT fermato','a');
+
+/* ── VU meter ── */
+async function sttStartVu() {
+  sttStopVu();
+  const devId = document.getElementById('stt-dev').value;
+  const constraints = {audio: devId && devId!=='default'
+    ? {deviceId:{exact:devId}} : true};
+  try {
+    sttStream   = await navigator.mediaDevices.getUserMedia(constraints);
+    sttAudioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const src   = sttAudioCtx.createMediaStreamSource(sttStream);
+    sttAnalyzer = sttAudioCtx.createAnalyser();
+    sttAnalyzer.fftSize = 256;
+    src.connect(sttAnalyzer);
+    const data  = new Uint8Array(sttAnalyzer.frequencyBinCount);
+    const bar   = document.getElementById('stt-vu-bar');
+    sttVuInterval = setInterval(()=>{
+      if(!sttAnalyzer||!bar) return;
+      sttAnalyzer.getByteFrequencyData(data);
+      const avg = data.reduce((a,b)=>a+b,0)/data.length;
+      const pct = Math.min(100, avg*2.5);
+      bar.style.width = pct+'%';
+      bar.className = 'stt-vu-bar'+(pct>80?' hot':pct>55?' warn':'');
+    }, 50);
+    return sttStream;
+  } catch(e) {
+    addLog('Errore VU meter: '+e.message,'err');
+    return null;
+  }
 }
+
+function sttStopVu() {
+  if (sttVuInterval) { clearInterval(sttVuInterval); sttVuInterval=null; }
+  if (sttStream)     { sttStream.getTracks().forEach(t=>t.stop()); sttStream=null; }
+  if (sttAudioCtx)   { sttAudioCtx.close().catch(()=>{}); sttAudioCtx=null; }
+  sttAnalyzer = null;
+  const bar = document.getElementById('stt-vu-bar');
+  if (bar) { bar.style.width='0%'; bar.className='stt-vu-bar'; }
+}
+
+/* ── AUTO: avvia/ferma STT nel browser ── */
+async function sttToggleAuto() {
+  if (sttActive) { await sttStopAuto(); return; }
+  await sttStartAuto();
+}
+
+async function sttStartAuto() {
+  const btn = document.getElementById('btn-stt-auto');
+  btn.textContent = '⏳ Connessione...'; btn.disabled = true;
+
+  try {
+    // 1. Prendi API key dal server
+    const r = await fetch(`${S}/api/stt/token`);
+    if (!r.ok) throw new Error('API key Deepgram non disponibile');
+    const {api_key} = await r.json();
+
+    // 2. Avvia stream microfono + VU meter
+    const stream = await sttStartVu();
+    if (!stream) throw new Error('Impossibile accedere al microfono');
+
+    // 3. Connetti a Deepgram via WebSocket
+    sttDgWs = new WebSocket(
+      'wss://api.deepgram.com/v1/listen?' +
+      'language=it&model=nova-2&punctuate=true&interim_results=true' +
+      '&utterance_end_ms=1000&vad_events=true',
+      ['token', api_key]
+    );
+
+    sttDgWs.onopen = async () => {
+      addLog('Deepgram connesso', 'ok');
+      // 4. Invia audio via ScriptProcessor (compatibile, no AudioWorklet)
+      sttAudioCtx = sttAudioCtx || new (window.AudioContext||window.webkitAudioContext)();
+      const src   = sttAudioCtx.createMediaStreamSource(stream);
+      sttProcessor = sttAudioCtx.createScriptProcessor(4096, 1, 1);
+      sttProcessor.onaudioprocess = (e) => {
+        if (sttDgWs?.readyState !== WebSocket.OPEN) return;
+        const f32  = e.inputBuffer.getChannelData(0);
+        // Converte float32 → int16 per Deepgram
+        const i16  = new Int16Array(f32.length);
+        for (let i=0; i<f32.length; i++) i16[i] = Math.max(-32768, Math.min(32767, f32[i]*32768));
+        sttDgWs.send(i16.buffer);
+      };
+      src.connect(sttProcessor);
+      sttProcessor.connect(sttAudioCtx.destination);
+
+      // Notifica il server
+      await fetch(`${S}/api/stt/start`, {method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({device:0, engine:'deepgram-browser'})});
+
+      sttActive = true;
+      btn.textContent = '■ FERMA'; btn.className='btn r'; btn.disabled=false;
+      document.getElementById('stt-st').textContent = 'LIVE — DEEPGRAM';
+      document.getElementById('stt-st').className   = 'stt-st active';
+      document.getElementById('stt-det').textContent = 'browser → deepgram → engine';
+      document.getElementById('stt-mode-tag').textContent = 'AUTO';
+      document.getElementById('stt-mode-tag').className   = 'tag green';
+    };
+
+    sttDgWs.onmessage = async (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type !== 'Results') return;
+      const alt = msg.channel?.alternatives?.[0];
+      if (!alt?.transcript) return;
+      const text = alt.transcript.trim();
+      // Mostra trascrizione
+      document.getElementById('stt-transcript').textContent = text || '—';
+      // Invia chunk al server solo se finale
+      if (msg.is_final && text) {
+        await fetch(`${S}/api/stt/chunk`, {method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({text})});
+      }
+    };
+
+    sttDgWs.onerror = (e) => { addLog('Deepgram errore WS','err'); sttStopAuto(); };
+    sttDgWs.onclose = ()  => { if(sttActive) { addLog('Deepgram disconnesso','warn'); sttStopAuto(); } };
+
+  } catch(e) {
+    addLog('STT errore: '+e.message,'err');
+    sttStopAuto();
+  }
+}
+
+async function sttStopAuto() {
+  sttActive = false;
+  if (sttProcessor) { try{ sttProcessor.disconnect(); }catch(x){} sttProcessor=null; }
+  if (sttDgWs)      { sttDgWs.close(); sttDgWs=null; }
+  sttStopVu();
+  await fetch(`${S}/api/stt/stop`,{method:'POST'}).catch(()=>{});
+  const btn = document.getElementById('btn-stt-auto');
+  btn.textContent='▶ AVVIA AUTO'; btn.className='btn g'; btn.disabled=false;
+  document.getElementById('stt-st').textContent = 'INATTIVO';
+  document.getElementById('stt-st').className   = 'stt-st';
+  document.getElementById('stt-det').textContent = 'seleziona dispositivo';
+  document.getElementById('stt-transcript').textContent = '—';
+  document.getElementById('stt-mode-tag').textContent = 'BROWSER';
+  document.getElementById('stt-mode-tag').className   = 'tag';
+}
+
+/* ── CLI fallback ── */
+function sttToggleCli() {
+  const drop = document.getElementById('stt-cli-drop');
+  drop.style.display = drop.style.display==='none' ? 'block' : 'none';
+  sttUpdateCli();
+}
+
+function sttUpdateCli() {
+  const sel = document.getElementById('stt-dev');
+  const opt = sel.options[sel.selectedIndex];
+  const devLabel = opt ? (opt.text.match(/\d+/)?.[0] || '0') : '0';
+  const cmd = `python stt-tracker/stt_deepgram.py --device ${devLabel} --server ${location.origin}`;
+  const el = document.getElementById('stt-cli-cmd');
+  if (el) el.textContent = cmd;
+}
+
+async function sttCopyCli() {
+  const cmd = document.getElementById('stt-cli-cmd').textContent;
+  try {
+    await navigator.clipboard.writeText(cmd);
+    toast('Comando copiato','g');
+  } catch(e) {
+    document.getElementById('stt-cli-cmd').select?.();
+    toast('Copia manuale','a');
+  }
+}
+
+/* Avvia VU meter non appena si seleziona un dispositivo */
+document.addEventListener('DOMContentLoaded', () => {
+  sttEnumDevices();
+});
+
+
 
 /* ══ TTS ══ */
 async function loadVoices() {
