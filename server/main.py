@@ -226,10 +226,17 @@ async def load_script_file(path: str):
 
 @app.post("/api/script/load")
 async def api_load_script(req: LoadScriptRequest):
+    """Carica un copione dal path sul server, rilevando automaticamente il formato."""
     try:
-        meta, cues = await load_script_file(req.path)
+        raw  = Path(req.path).read_text(encoding="utf-8")
+        data = json.loads(raw)
+        # Rileva formato: nuovo (ha 'cues' list) vs vecchio (ha 'acts')
+        if "cues" in data and isinstance(data["cues"], list):
+            meta, cues = await load_new_format_file(req.path)
+        else:
+            meta, cues = await load_script_file(req.path)
         await notify_directors({"type": "script_loaded", "metadata": meta})
-        return {"ok": True, "title": meta["title"], "total_cues": len(cues)}
+        return {"ok": True, "title": meta.get("title", ""), "total_cues": len(cues)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -243,33 +250,50 @@ async def api_scripts():
 
 
 @app.get("/api/script/download")
-async def api_script_download():
-    """Scarica il file JSON del copione attualmente caricato."""
+async def api_script_download(name: str = ""):
+    """Scarica un file JSON. Se name specificato scarica quel file, altrimenti il copione attivo."""
     from fastapi.responses import FileResponse
+    script_dir = Path(__file__).parent.parent / "script-parser"
+    if name:
+        p = script_dir / name
+        if not p.exists() or p.suffix != ".json":
+            raise HTTPException(status_code=404, detail=f"File {name} non trovato")
+        return FileResponse(str(p), media_type="application/json", filename=name)
     if not state.script_loaded or not state.metadata:
         raise HTTPException(status_code=404, detail="Nessun copione attivo")
     title = state.metadata.get("title", "copione")
-    safe_name = re.sub(r'[^\w\s-]', '', title).strip()
-    safe_name = re.sub(r'[\s-]+', '_', safe_name).lower() or "copione"
-    script_dir = Path(__file__).parent.parent / "script-parser"
-    # Cerca prima il file con nome titolo, poi script.json come fallback
-    script_path = script_dir / f"{safe_name}.json"
-    if not script_path.exists():
-        script_path = script_dir / "script.json"
-    if not script_path.exists():
-        raise HTTPException(status_code=404, detail="File copione non trovato su disco")
-    return FileResponse(
-        str(script_path),
-        media_type="application/json",
-        filename=f"{safe_name}.json",
-    )
+    safe  = re.sub(r'[^\w\s-]', '', title).strip()
+    safe  = re.sub(r'[\s-]+', '_', safe).lower() or "copione"
+    p = script_dir / f"{safe}.json"
+    if not p.exists():
+        p = script_dir / "script.json"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="File non trovato su disco")
+    return FileResponse(str(p), media_type="application/json", filename=f"{safe}.json")
 
 
-@app.post("/api/script/upload")
-async def api_script_upload(file: bytes = None):
-    """Riceve un file JSON copione caricato dal client e lo carica nel server."""
-    from fastapi import UploadFile, File
-    raise HTTPException(status_code=400, detail="Usa /api/script/upload-file")
+@app.delete("/api/script/file")
+async def api_script_file_delete(name: str):
+    """Elimina un singolo file JSON copione dalla libreria (non tocca la cache TTS)."""
+    script_dir  = Path(__file__).parent.parent / "script-parser"
+    script_path = script_dir / name
+    if not script_path.exists() or script_path.suffix != ".json":
+        raise HTTPException(status_code=404, detail=f"File {name} non trovato")
+    script_path.unlink()
+    log.info(f"File copione eliminato: {name}")
+    # Se era il copione attivo, resetta lo stato
+    if state.script_loaded:
+        title = state.metadata.get("title", "")
+        safe  = re.sub(r'[^\w\s-]', '', title).strip()
+        safe  = re.sub(r'[\s-]+', '_', safe).lower()
+        if name in (f"{safe}.json", "script.json"):
+            state.script_loaded = False
+            state.metadata      = {}
+            state.all_cues      = []
+            state.script_lines  = []
+            state.engine        = None
+            await notify_directors({"type": "script_cleared"})
+    return {"ok": True, "deleted": name}
 
 
 from fastapi import UploadFile, File

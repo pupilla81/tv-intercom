@@ -208,6 +208,34 @@ select.inp {
 .flbl { font-size:9px; letter-spacing:2px; color:var(--muted); margin-bottom:3px; }
 .g2 { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 
+/* Script library */
+.slib-row {
+  display:flex; align-items:center; gap:6px;
+  padding:5px 8px; border-radius:var(--r);
+  background:var(--surface); border:1px solid var(--border);
+  transition:border-color .12s;
+}
+.slib-row.active { border-color:var(--amber); background:var(--amber-dim); }
+.slib-name {
+  flex:1; font-size:10px; color:var(--text);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  letter-spacing:.5px;
+}
+.slib-row.active .slib-name { color:var(--amber); }
+.slib-btn {
+  padding:2px 7px; font-size:8px; letter-spacing:1px;
+  border-radius:2px; cursor:pointer; font-family:var(--mono);
+  border:1px solid var(--border); background:transparent;
+  color:var(--muted); transition:all .1s; flex-shrink:0;
+}
+.slib-btn:hover { border-color:var(--text); color:var(--text); }
+.slib-btn.load  { border-color:var(--amber); color:var(--amber); }
+.slib-btn.load:hover  { background:var(--amber-dim); }
+.slib-btn.dl    { border-color:var(--blue); color:var(--blue); }
+.slib-btn.dl:hover    { background:var(--blue-dim); }
+.slib-btn.del   { border-color:var(--red); color:var(--red); }
+.slib-btn.del:hover   { background:var(--red-dim); }
+
 /* TTS sliders */
 .slider-w { display:flex; flex-direction:column; gap:3px; }
 .slider-r { display:flex; align-items:center; gap:7px; }
@@ -581,17 +609,13 @@ input[type=range].sl::-webkit-slider-thumb {
         </div>
       </div>
 
-      <!-- File JSON sul server -->
+      <!-- Libreria copioni sul server -->
       <div class="sec">
-        <div class="sec-h">FILE COPIONE SUL SERVER <div class="spacer"></div>
+        <div class="sec-h">LIBRERIA COPIONI <div class="spacer"></div>
           <button class="btn" style="padding:2px 7px;font-size:8px;" onclick="refreshScripts()">↺</button>
         </div>
-        <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
-          <div style="display:flex;gap:6px;">
-            <select class="inp" id="server-scripts" style="flex:1;"><option value="">— rilevamento... —</option></select>
-            <button class="btn a" onclick="loadServerScript()">CARICA</button>
-          </div>
-          <button class="btn w" onclick="downloadScript()">⬇ SCARICA JSON CORRENTE</button>
+        <div id="script-library" style="display:flex;flex-direction:column;gap:4px;padding:8px 13px;">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:1px;">Caricamento...</div>
         </div>
       </div>
     </div>
@@ -940,6 +964,15 @@ function markFired(id) {
   // Aggiorna script_lines in memoria
   const sl = scriptLines.find(b => b.type==='cue_ref' && b.cue_id===id);
   if (sl) sl.fired = true;
+
+  // Auto-scroll al prossimo cue non scattato (se tab prompter attivo)
+  if (autoScroll && document.getElementById('pane-prompter')?.classList.contains('active')) {
+    const next = cues.find(c => !c.fired);
+    if (next) {
+      const el = document.getElementById(`pcue-${next.cue_id}`);
+      if (el) el.scrollIntoView({behavior:'smooth', block:'center'});
+    }
+  }
 }
 
 function updateNext() {
@@ -1070,10 +1103,11 @@ function scrollToActive() {
   if (el) el.scrollIntoView({behavior:'smooth', block:'center'});
 }
 function toggleAS() {
-  autoScroll=!autoScroll;
-  const b=document.getElementById('btn-as');
-  b.style.color = autoScroll?'var(--green)':'var(--muted)';
-  b.style.borderColor = autoScroll?'var(--green)':'var(--muted)';
+  autoScroll = !autoScroll;
+  const b = document.getElementById('btn-as');
+  b.textContent = autoScroll ? 'AUTO ▼' : 'AUTO ○';
+  b.className   = autoScroll ? 'btn g' : 'btn';
+  toast(autoScroll ? 'Auto-scroll attivo' : 'Auto-scroll disattivato', autoScroll?'g':'');
 }
 
 /* ══ SCRIPT LOAD ══ */
@@ -1442,41 +1476,76 @@ async function ttsPregen() {
 
 /* ══ SCRIPT LIST + DOWNLOAD ══ */
 async function refreshScripts() {
+  const lib = document.getElementById('script-library');
+  if (!lib) return;
   try {
     const r = await fetch(`${S}/api/scripts`), d = await r.json();
-    const sel = document.getElementById('server-scripts');
-    if (d.files?.length) {
-      sel.innerHTML = d.files.map(f=>`<option value="${f}">${f}</option>`).join('');
-    } else {
-      sel.innerHTML = '<option value="">Nessun file JSON</option>';
+    if (!d.files?.length) {
+      lib.innerHTML = '<div style="font-size:9px;color:var(--muted);letter-spacing:1px;padding:4px 0;">Nessun file JSON</div>';
+      return;
     }
+    const activeTitle = document.getElementById('si-title')?.textContent || '';
+    lib.innerHTML = '';
+    d.files.forEach(name => {
+      // Evidenzia il file attivo confrontando il nome normalizzato col titolo
+      const isActive = activeTitle !== '—' && name.toLowerCase().includes(
+        activeTitle.toLowerCase().replace(/\s+/g,'_').replace(/[^\w_]/g,'').slice(0,12)
+      );
+      const row = document.createElement('div');
+      row.className = 'slib-row' + (isActive ? ' active' : '');
+      row.innerHTML = `
+        <span class="slib-name" title="${name}">${name.replace('.json','')}</span>
+        <button class="slib-btn load" onclick="loadServerScript('${name}')">▶ CARICA</button>
+        <button class="slib-btn dl"  onclick="downloadScriptFile('${name}')">⬇</button>
+        <button class="slib-btn del" onclick="deleteScriptFile('${name}')">🗑</button>
+      `;
+      lib.appendChild(row);
+    });
   } catch(e) { addLog('Errore lista scripts: '+e.message,'err'); }
 }
 
-async function loadServerScript() {
-  const f = document.getElementById('server-scripts').value;
-  if(!f) return;
+async function loadServerScript(name) {
+  if (!name) return;
   try {
-    const path = `script-parser/${f}`;
-    const r = await fetch(`${S}/api/script/load`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+    const path = `script-parser/${name}`;
+    const r = await fetch(`${S}/api/script/load`,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
     const d = await r.json();
-    if(d.ok) { toast(`Caricato: ${d.title}`,'g'); loadCues(); pollStatus(); }
+    if(d.ok) { toast(`Caricato: ${d.title}`,'g'); loadCues(); pollStatus(); refreshScripts(); }
     else toast(d.detail||'Errore','e');
   } catch(e) { toast('Errore rete','e'); }
 }
 
-async function downloadScript() {
+async function downloadScriptFile(name) {
   try {
-    const r = await fetch(`${S}/api/script/download`);
-    if(!r.ok) { const d=await r.json().catch(()=>({detail:'Nessun copione attivo'})); toast(d.detail||'Nessun copione attivo','e'); return; }
+    const r = await fetch(`${S}/api/script/download?name=${encodeURIComponent(name)}`);
+    if(!r.ok) { toast('Errore download','e'); return; }
     const blob = await r.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'copione.json';
+    a.download = name;
     a.click();
     URL.revokeObjectURL(a.href);
-    toast('Download avviato','g');
+    toast(`Download: ${name}`,'g');
   } catch(e) { toast('Errore download','e'); }
+}
+
+async function downloadScript() {
+  // Scarica il copione attivo (chiamato dal pulsante sotto al copione attivo)
+  await downloadScriptFile('');
+}
+
+async function deleteScriptFile(name) {
+  if (!confirm(`Eliminare "${name}" dal server?\nQuesta operazione è irreversibile.`)) return;
+  try {
+    const r = await fetch(`${S}/api/script/file?name=${encodeURIComponent(name)}`, {method:'DELETE'});
+    const d = await r.json();
+    if(d.ok) {
+      toast(`Eliminato: ${name}`,'a');
+      addLog(`File eliminato: ${name}`,'warn');
+      refreshScripts();
+    } else toast(d.detail||'Errore','e');
+  } catch(e) { toast('Errore rete','e'); }
 }
 
 /* ══ GOTO SCENE ══ */
