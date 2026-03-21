@@ -569,6 +569,7 @@ def _load_new_format(script: dict):
         trigger = SimpleNamespace(
             type=trig_data.get("type", "manual"),
             text=trig_data.get("text", ""),
+            match_threshold=trig_data.get("match_threshold") or 0.75,
         )
         instructions = [
             SimpleNamespace(

@@ -90,7 +90,7 @@ def parse_script(text: str, title: str = "", date: str = "", location: str = "")
             "cue_id": cue_id,
             "scene_id": current_scene_id,
             "scene_name": current_scene_name,
-            "trigger": {"type": "manual", "text": manual_desc},
+            "trigger": {"type": "manual", "text": manual_desc, "match_threshold": None},
             "instructions": [{"camera": c["cam"], "text": c["text"]} for c in manual_cams],
             "fired": False,
         })
@@ -117,7 +117,7 @@ def parse_script(text: str, title: str = "", date: str = "", location: str = "")
                 "cue_id": cue_id,
                 "scene_id": current_scene_id,
                 "scene_name": current_scene_name,
-                "trigger": {"type": "line", "text": pending_trigger_text},
+                "trigger": {"type": "line", "text": pending_trigger_text, "match_threshold": 0.75},
                 "instructions": [{"camera": c["cam"], "text": c["text"]} for c in auto_cams],
                 "fired": False,
             })
