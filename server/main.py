@@ -65,6 +65,7 @@ class AppState:
         self.script_loaded: bool = False
         self.metadata: dict = {}
         self.all_cues: list[Cue] = []
+        self.script_lines: list[dict] = []   # blocchi testo+cue per il prompter
         self.engine: Optional[CueEngine] = None
         self.operator_connections: dict[int, WebSocket] = {}
         self.director_connections: list[WebSocket] = []
@@ -282,11 +283,12 @@ async def api_script_upload_file(file: UploadFile = File(...)):
         # Carica con il loader appropriato
         # Prova prima il nuovo formato, poi il vecchio
         try:
-            meta, cues = _load_new_format(script)
+            meta, cues, script_lines = _load_new_format(script)
             if not cues:
                 raise ValueError("Nessun cue trovato")
-            state.metadata = meta
-            state.all_cues = cues
+            state.metadata      = meta
+            state.all_cues      = cues
+            state.script_lines  = script_lines
             state.script_loaded = True
             auto = [c for c in cues if c.trigger.type == "line"]
             state.engine = CueEngine(auto, on_cue_fired=on_cue_fired)
@@ -351,6 +353,40 @@ async def api_cues():
 
 class FireCueRequest(BaseModel):
     cue_id: str
+
+
+@app.get("/api/script/lines")
+async def api_script_lines():
+    """
+    Restituisce script_lines con i dati cue risolti inline.
+    Usato dal prompter per mostrare testo completo + cue intercalati.
+    """
+    if not state.script_loaded:
+        raise HTTPException(status_code=400, detail="Nessun copione caricato")
+
+    # Indice cue per cue_id per risoluzione rapida
+    cue_index = {c.cue_id: c for c in state.all_cues}
+
+    result = []
+    for block in state.script_lines:
+        if block.get("type") == "cue_ref":
+            cue_id = block.get("cue_id", "")
+            cue = cue_index.get(cue_id)
+            if cue:
+                result.append({
+                    "type": "cue_ref",
+                    "cue_id": cue_id,
+                    "cue_type": cue.trigger.type,
+                    "trigger_text": cue.trigger.text,
+                    "cameras": [i.camera for i in cue.instructions],
+                    "instructions": [{"camera": i.camera, "text": i.text} for i in cue.instructions],
+                    "fired": cue.fired,
+                })
+        else:
+            result.append(block)
+
+    return result
+
 
 @app.post("/api/cues/fire")
 async def api_fire_cue(req: FireCueRequest):
@@ -516,7 +552,7 @@ class ConvertScriptRequest(BaseModel):
 def _load_new_format(script: dict):
     """
     Legge il JSON generato dal nuovo doc_to_script.py e restituisce
-    (meta, cues) compatibili con il resto del server.
+    (meta, cues, script_lines) compatibili con il resto del server.
     """
     from types import SimpleNamespace
 
@@ -524,13 +560,11 @@ def _load_new_format(script: dict):
 
     cues_out = []
     for c in script.get("cues", []):
-        # Trigger
         trig_data = c.get("trigger", {})
         trigger = SimpleNamespace(
             type=trig_data.get("type", "manual"),
             text=trig_data.get("text", ""),
         )
-        # Instructions
         instructions = [
             SimpleNamespace(
                 camera=i.get("camera", 1),
@@ -549,17 +583,19 @@ def _load_new_format(script: dict):
         )
         cues_out.append(cue)
 
-    return meta, cues_out
+    script_lines = script.get("script_lines", [])
+    return meta, cues_out, script_lines
 
 
 async def load_new_format_file(path: str):
     """Carica un JSON nel nuovo formato (doc_to_script v2) nel server."""
     raw = Path(path).read_text(encoding="utf-8")
     script = json.loads(raw)
-    meta, cues = _load_new_format(script)
+    meta, cues, script_lines = _load_new_format(script)
 
-    state.metadata = meta
-    state.all_cues = cues
+    state.metadata     = meta
+    state.all_cues     = cues
+    state.script_lines = script_lines
     state.script_loaded = True
 
     auto = [c for c in cues if c.trigger.type == "line"]

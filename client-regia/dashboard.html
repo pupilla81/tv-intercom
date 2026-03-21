@@ -260,6 +260,47 @@ input[type=range].sl::-webkit-slider-thumb {
 .script-blk.active-blk .dial-txt { border-left-color:var(--amber); }
 .script-blk.active-blk .char-ln { color:var(--amber); }
 
+/* Testo completo copione */
+.p-char {
+  font-family:var(--sans); font-size:10px; font-weight:700;
+  letter-spacing:4px; text-transform:uppercase;
+  color:var(--blue); margin:18px 0 2px; padding-left:11px;
+}
+.p-dialogue {
+  font-size:14px; line-height:1.9; color:var(--white);
+  padding-left:11px; border-left:2px solid var(--border);
+  margin-bottom:2px;
+}
+.p-dialogue.has-cue { border-left-color:var(--amber); }
+.p-narrator {
+  font-size:12px; line-height:1.7; color:var(--muted);
+  font-style:italic; padding-left:11px;
+  margin-bottom:6px;
+}
+
+/* Cue card inline nel testo */
+.p-cue {
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  margin:6px 0 10px 11px; padding:7px 11px;
+  border-radius:var(--r); border:1px solid rgba(255,176,32,.2);
+  background:var(--amber-dim); cursor:pointer; transition:all .12s;
+}
+.p-cue.auto  { background:var(--blue-dim); border-color:rgba(48,168,255,.2); }
+.p-cue.fired { opacity:.35; cursor:default; filter:none; }
+.p-cue:hover:not(.fired) { filter:brightness(1.25); }
+.p-cue-id   { font-size:8px; letter-spacing:2px; color:var(--muted); }
+.p-cue-cams { display:flex; gap:4px; flex-wrap:wrap; }
+.p-cue-cam  {
+  font-size:9px; padding:2px 7px; border-radius:2px;
+  font-family:var(--sans); font-weight:700; letter-spacing:1px;
+}
+.p-cue.auto  .p-cue-cam { background:rgba(48,168,255,.15); color:var(--blue); }
+.p-cue.manual .p-cue-cam { background:rgba(255,176,32,.15); color:var(--amber); }
+.p-cue.fired .p-cue-cam  { background:var(--green-dim); color:var(--green); }
+.p-cue-fire { font-size:9px; letter-spacing:2px; margin-left:auto;
+  color:inherit; opacity:.7; }
+.p-cue.fired .p-cue-fire { display:none; }
+
 .cue-pill {
   display:inline-flex; align-items:center; gap:5px; margin:3px 2px;
   padding:3px 9px; border-radius:3px; font-size:9px; letter-spacing:1px;
@@ -783,8 +824,9 @@ async function loadCues() {
   try {
     const r = await fetch(`${S}/api/cues`);
     cues = await r.json();
-    renderCueList(); renderManualCues(); renderScript(); updateNext();
+    renderCueList(); renderManualCues(); updateNext();
     populateSceneSelect();
+    await loadScriptLines();
   } catch(e) { addLog('Errore cue: '+e.message,'err'); }
 }
 
@@ -822,11 +864,21 @@ function renderManualCues() {
 function markFired(id) {
   const c = cues.find(x=>x.cue_id===id);
   if(c) c.fired=true;
+  // Aggiorna cue list destra
   renderCueList(); renderManualCues();
-  // Aggiorna TUTTE le pillole di questo cue (una per cam)
   document.querySelectorAll(`.cue-pill[data-cue="${id}"]`).forEach(pill => {
     pill.className='cue-pill fired';
   });
+  // Aggiorna cue card nel prompter
+  const pcue = document.getElementById(`pcue-${id}`);
+  if (pcue) {
+    pcue.classList.add('fired');
+    const fb = pcue.querySelector('.p-cue-fire');
+    if (fb) fb.textContent = '✓';
+  }
+  // Aggiorna script_lines in memoria
+  const sl = scriptLines.find(b => b.type==='cue_ref' && b.cue_id===id);
+  if (sl) sl.fired = true;
 }
 
 function updateNext() {
@@ -856,46 +908,105 @@ async function resetEngine() {
   await loadCues(); await pollStatus();
 }
 
-/* ══ SCRIPT RENDERING ══ */
+/* ══ SCRIPT RENDERING (testo completo) ══ */
+let scriptLines = [];   // dati da /api/script/lines
+
+async function loadScriptLines() {
+  try {
+    const r = await fetch(`${S}/api/script/lines`);
+    if (!r.ok) return;
+    scriptLines = await r.json();
+    renderScript();
+  } catch(e) { addLog('Errore script lines: '+e.message,'err'); }
+}
+
 function renderScript() {
   const sc = document.getElementById('scScroll');
-  if(!cues.length) { sc.innerHTML='<div style="color:var(--muted);padding:20px;text-align:center;letter-spacing:2px;font-size:10px;">CARICA UN COPIONE</div>'; return; }
-  let html='', lastScene=null;
-  cues.forEach(c => {
-    if(c.scene_id!==lastScene) {
-      const sname = c.scene_name ? ` — ${c.scene_name}` : '';
-      html+=`<div class="scene-hdr" id="scene-${c.scene_id}">SCENA ${c.scene_id}${sname}</div>`;
-      lastScene=c.scene_id;
-    }
-    const isMan = c.type!=='line', fired=c.fired;
-    const cams = (c.cameras||[]).map(n=>
-      `<span class="cue-pill ${isMan?'manual':'auto'} ${fired?'fired':''}" data-cue="${c.cue_id}" onclick="fireCue('${c.cue_id}')">`+
-      `<span class="cc">CAM${n}</span><span class="fi">▶</span></span>`
-    ).join('');
-    if(isMan) {
-      html+=`<div class="manual-blk" data-cue="${c.cue_id}">
-        <div class="manual-lbl">MANUALE — ${c.cue_id}</div>
-        <div>${cams}</div>
-        ${c.trigger_text?`<div class="manual-txt">${esc(c.trigger_text)}</div>`:''}
-      </div>`;
-    } else {
-      html+=`<div class="script-blk ${fired?'':'active-blk'}" data-cue="${c.cue_id}" id="blk-${c.cue_id}">
-        <div class="char-ln">TRIGGER STT</div>
-        <div class="dial-txt">${esc(c.trigger_text||c.cue_id)}</div>
-        <div style="margin-top:5px;">${cams}</div>
-      </div>`;
+  if (!scriptLines.length) {
+    sc.innerHTML = '<div style="color:var(--muted);padding:40px;text-align:center;letter-spacing:2px;font-size:10px;">CARICA UN COPIONE</div>';
+    return;
+  }
+
+  let html = '';
+  let lastScene = null;
+  let lastChar = null;
+
+  scriptLines.forEach(block => {
+    switch(block.type) {
+
+      case 'scene_header': {
+        const sname = block.scene_name ? ` — ${block.scene_name}` : '';
+        html += `<div class="scene-hdr" id="scene-${block.scene_id}">SCENA ${block.scene_id}${esc(sname)}</div>`;
+        lastScene = block.scene_id;
+        lastChar = null;
+        break;
+      }
+
+      case 'character': {
+        html += `<div class="p-char">${esc(block.text)}</div>`;
+        lastChar = block.text;
+        break;
+      }
+
+      case 'dialogue': {
+        // Il testo è trigger STT se ha un cue_ref subito dopo — lo evidenziamo
+        html += `<div class="p-dialogue">${esc(block.text)}</div>`;
+        break;
+      }
+
+      case 'manual_desc': {
+        html += `<div class="p-narrator">⚑ ${esc(block.text)}</div>`;
+        lastChar = null;
+        break;
+      }
+
+      case 'cue_ref': {
+        const isManual = block.cue_type !== 'line';
+        const fired    = block.fired;
+        const cls      = `p-cue ${isManual ? 'manual' : 'auto'} ${fired ? 'fired' : ''}`;
+        const cams     = (block.cameras || []).map(n =>
+          `<span class="p-cue-cam">CAM ${n}</span>`
+        ).join('');
+        // Mostra le istruzioni per ogni cam
+        const instrs   = (block.instructions || []).map(i =>
+          `<span style="font-size:9px;color:var(--muted);letter-spacing:0">${i.text}</span>`
+        ).join('<br>');
+        html += `
+          <div class="${cls}" id="pcue-${block.cue_id}" onclick="fireCue('${block.cue_id}')">
+            <span class="p-cue-id">${block.cue_id}</span>
+            <div class="p-cue-cams">${cams}</div>
+            ${instrs ? `<div style="flex-basis:100%;margin-top:3px;">${instrs}</div>` : ''}
+            <span class="p-cue-fire">${fired ? '✓' : '▶ FIRE'}</span>
+          </div>`;
+        break;
+      }
     }
   });
-  sc.innerHTML = html;
+
+  sc.innerHTML = html || '<div style="color:var(--muted);padding:20px;">Nessun contenuto</div>';
+  updateFiredInPrompter();
+}
+
+function updateFiredInPrompter() {
+  // Aggiorna lo stato fired di tutti i cue nel prompter
+  cues.forEach(c => {
+    const el = document.getElementById(`pcue-${c.cue_id}`);
+    if (!el) return;
+    if (c.fired) {
+      el.classList.add('fired');
+      const fb = el.querySelector('.p-cue-fire');
+      if (fb) fb.textContent = '✓';
+    }
+  });
 }
 
 function esc(t) { return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function scrollToActive() {
-  const n = cues.find(c=>!c.fired);
-  if(!n) return;
-  const el = document.getElementById(`blk-${n.cue_id}`);
-  if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
+  const next = cues.find(c=>!c.fired);
+  if (!next) return;
+  const el = document.getElementById(`pcue-${next.cue_id}`);
+  if (el) el.scrollIntoView({behavior:'smooth', block:'center'});
 }
 function toggleAS() {
   autoScroll=!autoScroll;
@@ -1122,7 +1233,7 @@ async function clearScript() {
     if (d.ok) {
       toast('Copione e cache TTS cancellati', 'a');
       addLog(`Cancellati: ${d.deleted.join(', ')}`, 'warn');
-      cues = [];
+      cues = []; scriptLines = [];
       renderCueList(); renderManualCues(); renderScript();
       populateSceneSelect();
       document.getElementById('si-title').textContent = '—';
