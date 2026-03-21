@@ -181,8 +181,13 @@ async def send_instruction_to_camera(instr, cue_id: str):
 # ---------------------------------------------------------------------------
 def on_cue_fired(fc: FiredCue):
     state.cues_fired_count += 1
-    log.info(f"🔔 CUE: {fc.cue.cue_id} (conf: {fc.confidence:.0%})")
-    asyncio.create_task(_dispatch_cue(fc))
+    log.info(f"🔔 CUE: {fc.cue.cue_id}")
+    try:
+        loop = asyncio.get_event_loop()
+        loop.create_task(_dispatch_cue(fc))
+    except RuntimeError:
+        # Fallback se non c'è un loop running nel thread corrente
+        asyncio.run_coroutine_threadsafe(_dispatch_cue(fc), asyncio.get_event_loop())
 
 async def _dispatch_cue(fc: FiredCue):
     tasks = [send_instruction_to_camera(instr, fc.cue.cue_id) for instr in fc.cue.instructions]
@@ -745,26 +750,32 @@ async def api_stt_start(req: STTStartRequest):
 @app.post("/api/stt/stop")
 async def api_stt_stop(source: str = ""):
     """Segnala che lo STT deve fermarsi.
-    Se source='browser', non notifica gli altri client (evita di fermare il CLI).
+    Se source='browser', non modifica stt_active e non notifica gli altri client
+    (evita di fermare il CLI Python in esecuzione parallela).
     """
-    state.stt_active = False
     if source != "browser":
+        state.stt_active = False
         await notify_directors({"type": "stt_stopped"})
     log.info(f"STT fermato (source={source or 'dashboard'})")
     return {"ok": True}
+
 
 class STTChunkRequest(BaseModel):
     text: str
 
 @app.post("/api/stt/chunk")
 async def api_stt_chunk(req: STTChunkRequest):
-    if not state.engine:
-        return {"fired": []}
-    fired = state.engine.process(req.text)
-    return {
-        "fired": [f.cue.cue_id for f in fired],
-        "pointer": state.engine.pointer,
-    }
+    try:
+        if not state.engine:
+            return {"fired": [], "pointer": 0}
+        fired = state.engine.process(req.text)
+        return {
+            "fired": [f.cue.cue_id for f in fired],
+            "pointer": state.engine.pointer,
+        }
+    except Exception as e:
+        log.error(f"Errore stt/chunk: {e}", exc_info=True)
+        return {"fired": [], "pointer": 0, "error": str(e)}
 
 # ---------------------------------------------------------------------------
 # WebSocket — Operatori Camera

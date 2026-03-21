@@ -1160,7 +1160,11 @@ async function sttStartVu() {
     ? {deviceId:{exact:devId}} : true};
   try {
     sttStream   = await navigator.mediaDevices.getUserMedia(constraints);
-    sttAudioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    // AudioContext a 16kHz — condiviso con il processor STT
+    if (!sttAudioCtx || sttAudioCtx.state === 'closed') {
+      sttAudioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000});
+    }
+    await sttAudioCtx.resume();
     const src   = sttAudioCtx.createMediaStreamSource(sttStream);
     sttAnalyzer = sttAudioCtx.createAnalyser();
     sttAnalyzer.fftSize = 256;
@@ -1224,40 +1228,58 @@ async function sttStartAuto() {
     sttDgWs.onopen = async () => {
       addLog('Deepgram connesso', 'ok');
 
-      // Deepgram: linear16 a 16kHz — identico al tracker Python
-      // AudioContext a 16kHz → il browser ricampiona automaticamente da 44100/48000Hz
-      sttAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      const src   = sttAudioCtx.createMediaStreamSource(stream);
+      // AudioContext a 16kHz — il browser ricampiona da 44100/48000Hz automaticamente
+      // Riusa il sttAudioCtx già creato dal VU meter se possibile, oppure crea nuovo
+      if (!sttAudioCtx) {
+        sttAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      }
+      await sttAudioCtx.resume();
+      const src = sttAudioCtx.createMediaStreamSource(stream);
 
-      // AudioWorklet inline come Blob URL (evita ScriptProcessorNode deprecato)
-      const workletCode = `
-        class PCMProcessor extends AudioWorkletProcessor {
-          process(inputs) {
-            const ch = inputs[0]?.[0];
-            if (ch) {
-              const i16 = new Int16Array(ch.length);
-              for (let i = 0; i < ch.length; i++)
-                i16[i] = Math.max(-32768, Math.min(32767, ch[i] * 32768));
-              this.port.postMessage(i16.buffer, [i16.buffer]);
-            }
-            return true;
-          }
-        }
-        registerProcessor('pcm-processor', PCMProcessor);
-      `;
-      const blob   = new Blob([workletCode], {type: 'application/javascript'});
-      const blobURL = URL.createObjectURL(blob);
-      await sttAudioCtx.audioWorklet.addModule(blobURL);
-      URL.revokeObjectURL(blobURL);
+      try {
+        // Tentativo 1: AudioWorkletNode (moderno)
+        const workletCode = `class PCMProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    const ch = inputs[0]?.[0];
+    if (ch) {
+      const i16 = new Int16Array(ch.length);
+      for (let i = 0; i < ch.length; i++)
+        i16[i] = Math.max(-32768, Math.min(32767, ch[i] * 32768));
+      this.port.postMessage(i16.buffer, [i16.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor('pcm-processor', PCMProcessor);`;
+        const blob    = new Blob([workletCode], {type: 'application/javascript'});
+        const blobURL = URL.createObjectURL(blob);
+        await sttAudioCtx.audioWorklet.addModule(blobURL);
+        URL.revokeObjectURL(blobURL);
 
-      sttProcessor = new AudioWorkletNode(sttAudioCtx, 'pcm-processor');
-      sttProcessor.port.onmessage = (e) => {
-        if (sttDgWs?.readyState === WebSocket.OPEN) {
-          sttDgWs.send(e.data);
-        }
-      };
-      src.connect(sttProcessor);
-      sttProcessor.connect(sttAudioCtx.destination);
+        sttProcessor = new AudioWorkletNode(sttAudioCtx, 'pcm-processor');
+        sttProcessor.port.onmessage = (e) => {
+          if (sttDgWs?.readyState === WebSocket.OPEN) sttDgWs.send(e.data);
+        };
+        src.connect(sttProcessor);
+        sttProcessor.connect(sttAudioCtx.destination);
+        addLog('Audio: AudioWorklet 16kHz attivo', 'ok');
+
+      } catch(workletErr) {
+        // Fallback: ScriptProcessorNode (funziona sempre, solo deprecation warning)
+        addLog('AudioWorklet fallback: ' + workletErr.message, 'warn');
+        sttProcessor = sttAudioCtx.createScriptProcessor(4096, 1, 1);
+        sttProcessor.onaudioprocess = (e) => {
+          if (sttDgWs?.readyState !== WebSocket.OPEN) return;
+          const f32 = e.inputBuffer.getChannelData(0);
+          const i16 = new Int16Array(f32.length);
+          for (let i = 0; i < f32.length; i++)
+            i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768));
+          sttDgWs.send(i16.buffer);
+        };
+        src.connect(sttProcessor);
+        sttProcessor.connect(sttAudioCtx.destination);
+        addLog('Audio: ScriptProcessor 16kHz fallback attivo', 'ok');
+      }
 
       // Notifica il server
       await fetch(`${S}/api/stt/start`, {method:'POST',headers:{'Content-Type':'application/json'},
