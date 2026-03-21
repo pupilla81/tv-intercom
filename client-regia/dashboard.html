@@ -522,9 +522,17 @@ input[type=range].sl::-webkit-slider-thumb {
               <div id="stt-cli-drop" style="
                 display:none; position:absolute; right:0; top:110%; z-index:50;
                 background:var(--panel); border:1px solid var(--border2); border-radius:var(--r);
-                padding:10px 12px; width:340px; box-shadow:0 4px 16px rgba(0,0,0,.5);
+                padding:10px 12px; width:360px; box-shadow:0 4px 16px rgba(0,0,0,.5);
               ">
                 <div style="font-size:8px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">COMANDO CLI — incolla nel terminale</div>
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+                  <div class="flbl" style="margin:0;white-space:nowrap;">DEVICE N°</div>
+                  <input type="number" id="stt-cli-dev" value="0" min="0" max="99"
+                    style="width:56px;background:var(--bg);border:1px solid var(--border2);border-radius:2px;
+                    color:var(--text);font-family:var(--mono);font-size:11px;padding:4px 7px;outline:none;"
+                    oninput="sttUpdateCli()" title="Inserisci il numero device da --list-devices"/>
+                  <div style="font-size:8px;color:var(--muted);letter-spacing:1px;">da: python stt_deepgram.py --list-devices</div>
+                </div>
                 <div id="stt-cli-cmd" style="
                   font-size:10px; color:var(--blue); background:var(--bg);
                   padding:7px 9px; border-radius:2px; border:1px solid var(--border);
@@ -775,8 +783,11 @@ function onMsg(m) {
       addLog(`STT avviato — ${m.engine} dev ${m.device}`,'ok'); break;
     case 'stt_stopped':
       led('stt','off','STT');
-      document.getElementById('stt-st').textContent='INATTIVO';
-      document.getElementById('stt-st').className='stt-st';
+      // Non interrompere il browser STT se è lui stesso che ha generato l'evento
+      if (!sttActive) {
+        document.getElementById('stt-st').textContent='INATTIVO';
+        document.getElementById('stt-st').className='stt-st';
+      }
       addLog('STT fermato','warn'); break;
     case 'engine_reset':
       addLog('Engine resettato','warn'); loadCues(); pollStatus(); break;
@@ -1255,7 +1266,8 @@ async function sttStartAuto() {
     };
 
     sttDgWs.onerror = (e) => { addLog('Deepgram errore WS','err'); sttStopAuto(); };
-    sttDgWs.onclose = ()  => { if(sttActive) { addLog('Deepgram disconnesso','warn'); sttStopAuto(); } };
+    // Imposta sttActive=false PRIMA di chiamare close() per evitare il loop onclose→sttStopAuto
+    sttDgWs.onclose = () => { if(sttActive) { addLog('Deepgram disconnesso','warn'); sttStopAuto(); } };
 
   } catch(e) {
     addLog('STT errore: '+e.message,'err');
@@ -1264,7 +1276,8 @@ async function sttStartAuto() {
 }
 
 async function sttStopAuto() {
-  sttActive = false;
+  if (!sttActive && !sttDgWs) return; // già fermato, evita doppia chiamata
+  sttActive = false;                   // imposta subito per bloccare onclose loop
   if (sttProcessor) { try{ sttProcessor.disconnect(); }catch(x){} sttProcessor=null; }
   if (sttDgWs)      { sttDgWs.close(); sttDgWs=null; }
   sttStopVu();
@@ -1287,10 +1300,8 @@ function sttToggleCli() {
 }
 
 function sttUpdateCli() {
-  const sel = document.getElementById('stt-dev');
-  const opt = sel.options[sel.selectedIndex];
-  const devLabel = opt ? (opt.text.match(/\d+/)?.[0] || '0') : '0';
-  const cmd = `python stt-tracker/stt_deepgram.py --device ${devLabel} --server ${location.origin}`;
+  const devN = document.getElementById('stt-cli-dev')?.value || '0';
+  const cmd = `python stt-tracker/stt_deepgram.py --device ${devN} --server ${location.origin}`;
   const el = document.getElementById('stt-cli-cmd');
   if (el) el.textContent = cmd;
 }
