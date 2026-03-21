@@ -1215,7 +1215,8 @@ async function sttStartAuto() {
     // Usiamo encoding=opus (webm/opus via MediaRecorder) — nessun ScriptProcessorNode
     sttDgWs = new WebSocket(
       'wss://api.deepgram.com/v1/listen?' +
-      'language=it&model=nova-2&punctuate=true&interim_results=true' +
+      'encoding=linear16&sample_rate=16000&channels=1' +
+      '&language=it&model=nova-2&punctuate=true&interim_results=true' +
       '&utterance_end_ms=1000&vad_events=true',
       ['token', api_key]
     );
@@ -1223,20 +1224,40 @@ async function sttStartAuto() {
     sttDgWs.onopen = async () => {
       addLog('Deepgram connesso', 'ok');
 
-      // 4. Invia audio via MediaRecorder (moderno, nessuna deprecazione)
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-          ? 'audio/webm'
-          : '';
+      // Deepgram: linear16 a 16kHz — identico al tracker Python
+      // AudioContext a 16kHz → il browser ricampiona automaticamente da 44100/48000Hz
+      sttAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const src   = sttAudioCtx.createMediaStreamSource(stream);
 
-      sttProcessor = new MediaRecorder(stream, mimeType ? {mimeType} : {});
-      sttProcessor.addEventListener('dataavailable', (e) => {
-        if (e.data.size > 0 && sttDgWs?.readyState === WebSocket.OPEN) {
+      // AudioWorklet inline come Blob URL (evita ScriptProcessorNode deprecato)
+      const workletCode = `
+        class PCMProcessor extends AudioWorkletProcessor {
+          process(inputs) {
+            const ch = inputs[0]?.[0];
+            if (ch) {
+              const i16 = new Int16Array(ch.length);
+              for (let i = 0; i < ch.length; i++)
+                i16[i] = Math.max(-32768, Math.min(32767, ch[i] * 32768));
+              this.port.postMessage(i16.buffer, [i16.buffer]);
+            }
+            return true;
+          }
+        }
+        registerProcessor('pcm-processor', PCMProcessor);
+      `;
+      const blob   = new Blob([workletCode], {type: 'application/javascript'});
+      const blobURL = URL.createObjectURL(blob);
+      await sttAudioCtx.audioWorklet.addModule(blobURL);
+      URL.revokeObjectURL(blobURL);
+
+      sttProcessor = new AudioWorkletNode(sttAudioCtx, 'pcm-processor');
+      sttProcessor.port.onmessage = (e) => {
+        if (sttDgWs?.readyState === WebSocket.OPEN) {
           sttDgWs.send(e.data);
         }
-      });
-      sttProcessor.start(250); // invia chunk ogni 250ms
+      };
+      src.connect(sttProcessor);
+      sttProcessor.connect(sttAudioCtx.destination);
 
       // Notifica il server
       await fetch(`${S}/api/stt/start`, {method:'POST',headers:{'Content-Type':'application/json'},
@@ -1279,15 +1300,19 @@ async function sttStartAuto() {
 }
 
 async function sttStopAuto() {
-  if (!sttActive && !sttDgWs) return; // già fermato
-  sttActive = false;                   // prima di tutto, blocca onclose loop
+  if (!sttActive && !sttDgWs) return;
+  sttActive = false;
   if (sttProcessor) {
-    try { sttProcessor.stop(); } catch(x) {}
+    try { sttProcessor.disconnect(); } catch(x) {}
     sttProcessor = null;
+  }
+  if (sttAudioCtx) {
+    try { await sttAudioCtx.close(); } catch(x) {}
+    sttAudioCtx = null;
   }
   if (sttDgWs) { sttDgWs.close(); sttDgWs = null; }
   sttStopVu();
-  await fetch(`${S}/api/stt/stop`,{method:'POST'}).catch(()=>{});
+  await fetch(`${S}/api/stt/stop?source=browser`,{method:'POST'}).catch(()=>{});
   const btn = document.getElementById('btn-stt-auto');
   btn.textContent='▶ AVVIA AUTO'; btn.className='btn g'; btn.disabled=false;
   document.getElementById('stt-st').textContent = 'INATTIVO';

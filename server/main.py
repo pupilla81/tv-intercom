@@ -743,11 +743,14 @@ async def api_stt_start(req: STTStartRequest):
     return {"ok": True}
 
 @app.post("/api/stt/stop")
-async def api_stt_stop():
-    """Segnala che lo STT deve fermarsi — notifica la dashboard."""
+async def api_stt_stop(source: str = ""):
+    """Segnala che lo STT deve fermarsi.
+    Se source='browser', non notifica gli altri client (evita di fermare il CLI).
+    """
     state.stt_active = False
-    await notify_directors({"type": "stt_stopped"})
-    log.info("STT fermato dalla dashboard")
+    if source != "browser":
+        await notify_directors({"type": "stt_stopped"})
+    log.info(f"STT fermato (source={source or 'dashboard'})")
     return {"ok": True}
 
 class STTChunkRequest(BaseModel):
