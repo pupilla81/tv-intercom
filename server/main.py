@@ -715,6 +715,19 @@ class STTStartRequest(BaseModel):
     device: int = 7
     engine: str = "deepgram"
 
+
+@app.get("/api/stt/token")
+async def api_stt_token():
+    """
+    Restituisce la API key Deepgram per l'uso nel browser (STT lato client).
+    La chiave viene letta dalle variabili d'ambiente — mai hardcoded nel frontend.
+    """
+    key = os.environ.get("DEEPGRAM_API_KEY", "")
+    if not key:
+        raise HTTPException(status_code=503, detail="DEEPGRAM_API_KEY non configurata sul server")
+    return {"api_key": key}
+
+
 @app.post("/api/stt/start")
 async def api_stt_start(req: STTStartRequest):
     """Registra che lo STT è stato avviato — notifica la dashboard."""
