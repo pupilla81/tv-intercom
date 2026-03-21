@@ -435,6 +435,36 @@ async def api_fire_cue(req: FireCueRequest):
     await _dispatch_cue(fc)
     return {"ok": True, "cue_id": req.cue_id}
 
+
+@app.post("/api/cues/skip")
+async def api_skip_cue(req: FireCueRequest):
+    """
+    Marca un cue come fired senza inviare istruzioni alle camere.
+    Usato per saltare cue che non devono scattare (cambio programma,
+    scena tagliata, cue automatica non rilevata dallo STT).
+    Avanza comunque il puntatore dell'engine.
+    """
+    if not state.engine:
+        raise HTTPException(status_code=400, detail="Engine non inizializzato")
+    target = next((c for c in state.all_cues if c.cue_id == req.cue_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Cue {req.cue_id} non trovato")
+    if target.fired:
+        raise HTTPException(status_code=409, detail="Cue già scattato")
+
+    target.fired = True
+    state.cues_fired_count += 1
+    if target.trigger.type == "line":
+        state.engine.pointer = max(state.engine.pointer, state.all_cues.index(target) + 1)
+    # Notifica la regia del skip (senza dispatch alle camere)
+    await notify_directors({
+        "type": "cue_skipped",
+        "cue_id": req.cue_id,
+        "cameras": [i.camera for i in target.instructions],
+    })
+    log.info(f"⏭ CUE SKIP: {req.cue_id}")
+    return {"ok": True, "cue_id": req.cue_id, "skipped": True}
+
 @app.post("/api/engine/reset")
 async def api_reset():
     if state.engine:

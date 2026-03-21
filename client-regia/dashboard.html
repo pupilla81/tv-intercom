@@ -329,9 +329,12 @@ input[type=range].sl::-webkit-slider-thumb {
 .p-cue.auto  .p-cue-cam { background:rgba(48,168,255,.15); color:var(--blue); }
 .p-cue.manual .p-cue-cam { background:rgba(255,176,32,.15); color:var(--amber); }
 .p-cue.fired .p-cue-cam  { background:var(--green-dim); color:var(--green); }
-.p-cue-fire { font-size:9px; letter-spacing:2px; margin-left:auto;
-  color:inherit; opacity:.7; }
-.p-cue.fired .p-cue-fire { display:none; }
+.p-cue-fire { font-size:9px; letter-spacing:2px; margin-left:0;
+  cursor:pointer; opacity:.8; padding:2px 6px; border-radius:2px;
+  border:1px solid currentColor; transition:opacity .1s; }
+.p-cue-fire:hover { opacity:1; }
+.p-cue.fired .p-cue-fire { border:none; cursor:default; opacity:.6; }
+.p-cue-skip-btn { opacity:.5; font-size:8px; letter-spacing:1px; }
 
 .cue-pill {
   display:inline-flex; align-items:center; gap:5px; margin:3px 2px;
@@ -796,6 +799,10 @@ function onMsg(m) {
       updateCams(); addLog(`CAM ${m.camera} disconnessa`,'warn'); break;
     case 'cue_fired':
       onCueFired(m); break;
+    case 'cue_skipped':
+      addLog(`⏭ SKIP: ${m.cue_id}`,'warn');
+      markFired(m.cue_id);
+      break;
     case 'script_loaded':
       led('sc','on','COPIONE'); pollStatus(); loadCues();
       toast(`Copione: ${m.metadata?.title||''}`, 'g'); break;
@@ -923,14 +930,19 @@ function renderCueList() {
     const fired = c.fired;
     const cams = (c.cameras||[]).map(n=>`<span class="cam-chip">C${n}</span>`).join('');
     const trig = c.trigger_text?(c.trigger_text.length>34?c.trigger_text.slice(0,31)+'…':c.trigger_text):c.cue_id;
-    const fb = (!fired&&tp==='manual')?`<button class="fire-btn" onclick="fireCue('${c.cue_id}')">▶ ESEGUI</button>`:'';
+    const btns = !fired ? `
+      <div style="display:flex;gap:4px;margin-top:4px;">
+        <button class="fire-btn" onclick="fireCue('${c.cue_id}')">▶ FIRE</button>
+        <button class="fire-btn" style="opacity:.6;font-size:8px;"
+          onclick="skipCue('${c.cue_id}')">⏭ SKIP</button>
+      </div>` : '';
     return `<div class="ci ${fired?'fired':''}" id="ci-${c.cue_id}">
       <div class="ci-head">
         <span class="ci-id">${c.cue_id}</span>
         <span class="ci-type ${fired?'fired':tp}">${fired?'SCATTATO':(tp==='auto'?'AUTO':'MANUALE')}</span>
       </div>
       <div class="ci-trigger">${trig}</div>
-      <div class="ci-cams">${cams}</div>${fb}
+      <div class="ci-cams">${cams}</div>${btns}
     </div>`;
   }).join('');
 }
@@ -1019,6 +1031,14 @@ async function fireCue(id) {
   } catch(e) { toast('Errore rete','e'); }
 }
 
+async function skipCue(id) {
+  try {
+    const r = await fetch(`${S}/api/cues/skip`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cue_id:id})});
+    if(r.ok) { toast(`⏭ SKIP: ${id}`,''); markFired(id); }
+    else { const d=await r.json(); toast(d.detail||'Errore','e'); }
+  } catch(e) { toast('Errore rete','e'); }
+}
+
 async function resetEngine() {
   if(!confirm('Reset engine e tutti i cue?')) return;
   await fetch(`${S}/api/engine/reset`,{method:'POST'});
@@ -1085,16 +1105,22 @@ function renderScript() {
         const cams     = (block.cameras || []).map(n =>
           `<span class="p-cue-cam">CAM ${n}</span>`
         ).join('');
-        // Mostra le istruzioni per ogni cam
         const instrs   = (block.instructions || []).map(i =>
           `<span style="font-size:9px;color:var(--muted);letter-spacing:0">${i.text}</span>`
         ).join('<br>');
         html += `
-          <div class="${cls}" id="pcue-${block.cue_id}" onclick="fireCue('${block.cue_id}')">
+          <div class="${cls}" id="pcue-${block.cue_id}">
             <span class="p-cue-id">${block.cue_id}</span>
             <div class="p-cue-cams">${cams}</div>
             ${instrs ? `<div style="flex-basis:100%;margin-top:3px;">${instrs}</div>` : ''}
-            <span class="p-cue-fire">${fired ? '✓' : '▶ FIRE'}</span>
+            <div style="display:flex;gap:5px;margin-left:auto;flex-shrink:0;">
+              ${fired ? '<span class="p-cue-fire">✓</span>' : `
+                <span class="p-cue-fire p-cue-skip-btn"
+                  onclick="event.stopPropagation();skipCue('${block.cue_id}')">⏭ SKIP</span>
+                <span class="p-cue-fire"
+                  onclick="event.stopPropagation();fireCue('${block.cue_id}')">▶ FIRE</span>
+              `}
+            </div>
           </div>`;
         break;
       }
