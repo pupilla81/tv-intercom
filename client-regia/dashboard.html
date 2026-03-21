@@ -1278,12 +1278,6 @@ async function sttStartAuto() {
   }
 }
 
-  } catch(e) {
-    addLog('STT errore: '+e.message,'err');
-    sttStopAuto();
-  }
-}
-
 async function sttStopAuto() {
   if (!sttActive && !sttDgWs) return; // già fermato
   sttActive = false;                   // prima di tutto, blocca onclose loop
