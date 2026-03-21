@@ -947,13 +947,23 @@ function renderManualCues() {
 }
 
 function markFired(id) {
-  const c = cues.find(x=>x.cue_id===id);
-  if(c) c.fired=true;
-  // Aggiorna cue list destra
-  renderCueList(); renderManualCues();
-  document.querySelectorAll(`.cue-pill[data-cue="${id}"]`).forEach(pill => {
-    pill.className='cue-pill fired';
-  });
+  const c = cues.find(x => x.cue_id === id);
+  if (c) c.fired = true;
+
+  // Aggiorna solo l'elemento specifico nella cue list — NO full re-render
+  const ciEl = document.getElementById(`ci-${id}`);
+  if (ciEl) {
+    ciEl.classList.add('fired');
+    const typeEl = ciEl.querySelector('.ci-type');
+    if (typeEl) { typeEl.textContent = 'SCATTATO'; typeEl.className = 'ci-type fired'; }
+    const fireBtn = ciEl.querySelector('.fire-btn');
+    if (fireBtn) fireBtn.remove();
+  }
+
+  // Aggiorna il cue manuale nella col3 se esiste
+  const manBtn = document.querySelector(`button[onclick="fireCue('${id}')"]`);
+  if (manBtn) { manBtn.disabled = true; manBtn.style.opacity = '.4'; }
+
   // Aggiorna cue card nel prompter
   const pcue = document.getElementById(`pcue-${id}`);
   if (pcue) {
@@ -961,36 +971,50 @@ function markFired(id) {
     const fb = pcue.querySelector('.p-cue-fire');
     if (fb) fb.textContent = '✓';
   }
+
   // Aggiorna script_lines in memoria
-  const sl = scriptLines.find(b => b.type==='cue_ref' && b.cue_id===id);
+  const sl = scriptLines.find(b => b.type === 'cue_ref' && b.cue_id === id);
   if (sl) sl.fired = true;
 
-  // Auto-scroll al prossimo cue non scattato (se tab prompter attivo)
-  if (autoScroll && document.getElementById('pane-prompter')?.classList.contains('active')) {
-    const next = cues.find(c => !c.fired);
-    if (next) {
-      const el = document.getElementById(`pcue-${next.cue_id}`);
-      if (el) el.scrollIntoView({behavior:'smooth', block:'center'});
-    }
+  // Auto-scroll al prossimo cue — setTimeout per attendere fine reflow
+  if (autoScroll) {
+    setTimeout(() => {
+      const next = cues.find(c => !c.fired);
+      if (!next) return;
+      // Scrolla nel prompter se è il tab attivo
+      if (document.getElementById('pane-prompter')?.classList.contains('active')) {
+        const el = document.getElementById(`pcue-${next.cue_id}`);
+        if (el) el.scrollIntoView({behavior: 'smooth', block: 'center'});
+      }
+      // Aggiorna "prossimo cue" nel pannello destro senza scrollare
+      updateNext(false);
+    }, 50);
+  } else {
+    updateNext(false);
   }
 }
 
-function updateNext() {
+function updateNext(doScroll = true) {
   const next = cues.find(c=>!c.fired);
   const nb = document.getElementById('ncb');
-  if(!next) { nb.style.display='none'; return; }
-  nb.style.display='block';
-  document.getElementById('ncb-txt').textContent = next.trigger_text||next.cue_id;
-  document.getElementById('ncb-cams').innerHTML = (next.cameras||[]).map(n=>`<span class="cam-chip">C${n}</span>`).join('');
+  if(!next) { if(nb) nb.style.display='none'; return; }
+  if(nb) nb.style.display='block';
+  const ntxt = document.getElementById('ncb-txt');
+  const ncams = document.getElementById('ncb-cams');
+  if(ntxt) ntxt.textContent = next.trigger_text||next.cue_id;
+  if(ncams) ncams.innerHTML = (next.cameras||[]).map(n=>`<span class="cam-chip">C${n}</span>`).join('');
   document.querySelectorAll('.ci.next').forEach(el=>el.classList.remove('next'));
   const el = document.getElementById(`ci-${next.cue_id}`);
-  if(el) { el.classList.add('next'); el.scrollIntoView({block:'nearest'}); }
+  if(el) {
+    el.classList.add('next');
+    if(doScroll) el.scrollIntoView({block:'nearest'});
+  }
 }
 
 async function fireCue(id) {
   try {
     const r = await fetch(`${S}/api/cues/fire`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cue_id:id})});
-    if(r.ok) { toast(`CUE ${id} eseguito`,'a'); markFired(id); updateNext(); }
+    if(r.ok) { toast(`CUE ${id} eseguito`,'a'); markFired(id); }
     else { const d=await r.json(); toast(d.detail||'Errore','e'); }
   } catch(e) { toast('Errore rete','e'); }
 }
