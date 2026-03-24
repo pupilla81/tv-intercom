@@ -71,14 +71,81 @@ body {
 /* Unlock overlay */
 #overlay {
   position:fixed; inset:0; z-index:999; background:#0a0a0a;
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:30px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:0; padding:28px 24px; overflow-y:auto;
 }
+.ov-logo { font-size:38px; margin-bottom:8px; }
+.ov-title { font-size:13px; letter-spacing:4px; color:#888; text-transform:uppercase; margin-bottom:4px; }
+.ov-cam   { font-size:11px; letter-spacing:3px; color:#444; margin-bottom:20px; }
+
+/* Test audio card */
+.ov-card {
+  width:100%; max-width:320px;
+  background:#141414; border:1px solid #2a2a2a; border-radius:12px;
+  padding:16px 18px; margin-bottom:12px;
+}
+.ov-card-title {
+  font-size:9px; letter-spacing:3px; text-transform:uppercase;
+  color:#555; margin-bottom:12px;
+}
+
+/* Volume slider */
+.ov-vol-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.ov-vol-icon { font-size:18px; flex-shrink:0; }
+.ov-vol-slider {
+  -webkit-appearance:none; flex:1; height:4px;
+  background:#2a2a2a; border-radius:2px; outline:none; cursor:pointer;
+}
+.ov-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance:none; width:20px; height:20px;
+  border-radius:50%; background:var(--accent); cursor:pointer;
+}
+.ov-vol-val { font-size:11px; color:var(--accent); min-width:36px; text-align:right; }
+
+/* VU meter mic */
+.ov-vu-row { display:flex; align-items:center; gap:10px; }
+.ov-vu-icon { font-size:18px; flex-shrink:0; }
+.ov-vu-wrap { flex:1; height:8px; background:#1a1a1a; border-radius:4px; overflow:hidden; }
+.ov-vu-bar  { height:100%; width:0%; border-radius:4px; background:var(--green); transition:width 0.05s; }
+.ov-vu-bar.warn { background:var(--orange); }
+.ov-vu-bar.hot  { background:var(--red); }
+.ov-vu-lbl { font-size:9px; letter-spacing:2px; color:#444; min-width:36px; text-align:right; }
+
+/* Test button */
+.ov-test-btn {
+  width:100%; padding:12px; border-radius:8px; cursor:pointer;
+  background:#1a2a1a; border:1px solid var(--green); color:var(--green);
+  font-family:monospace; font-size:11px; letter-spacing:3px; text-transform:uppercase;
+  margin-bottom:0; transition:all 0.15s;
+}
+.ov-test-btn:active { background:#003300; }
+.ov-test-status {
+  font-size:9px; letter-spacing:2px; color:#444; text-align:center;
+  margin-top:8px; min-height:14px;
+}
+
 .unlock-btn {
-  width:100%; max-width:280px; background:var(--accent);
+  width:100%; max-width:320px; background:var(--accent);
   border:none; border-radius:12px; padding:18px; cursor:pointer;
   font-size:13px; font-family:monospace; letter-spacing:3px;
-  color:#fff; font-weight:bold; text-transform:uppercase; margin-top:8px;
+  color:#fff; font-weight:bold; text-transform:uppercase;
+  margin-top:4px; transition:all 0.15s;
 }
+.unlock-btn:active { filter:brightness(0.85); }
+
+/* VU meter mic nella schermata operativa */
+.mic-vu-wrap {
+  width:100%; max-width:340px;
+  display:flex; align-items:center; gap:10px;
+}
+.mic-vu-bar-outer {
+  flex:1; height:6px; background:var(--surface); border-radius:3px;
+  border:1px solid var(--border); overflow:hidden;
+}
+.mic-vu-bar-inner { height:100%; width:0%; border-radius:3px; background:var(--green); transition:width 0.05s; }
+.mic-vu-bar-inner.warn { background:var(--orange); }
+.mic-vu-bar-inner.hot  { background:var(--red); }
+.mic-vu-lbl { font-size:9px; letter-spacing:2px; color:var(--muted); min-width:28px; }
 
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 </style>
@@ -90,11 +157,40 @@ body {
 
 <!-- Unlock overlay -->
 <div id="overlay">
-  <div style="font-size:44px">🎙</div>
-  <div style="font-size:13px;letter-spacing:4px;color:#888;text-transform:uppercase">TV Intercom</div>
-  <div id="camLabelOverlay" style="font-size:11px;letter-spacing:3px;color:#555;"></div>
-  <button class="unlock-btn" onclick="unlock()">Entra in servizio</button>
-  <div style="font-size:10px;color:#333;letter-spacing:2px;text-align:center">Connessione vocale + istruzioni automatiche</div>
+  <div class="ov-logo">🎙</div>
+  <div class="ov-title">TV Intercom</div>
+  <div class="ov-cam" id="camLabelOverlay"></div>
+
+  <!-- Test cuffie -->
+  <div class="ov-card">
+    <div class="ov-card-title">🎧 Test cuffie</div>
+    <div class="ov-vol-row">
+      <span class="ov-vol-icon">🔊</span>
+      <input type="range" class="ov-vol-slider" id="volSlider" min="0" max="100" value="80"
+        oninput="updateVolume(this.value)"/>
+      <span class="ov-vol-val" id="volVal">80%</span>
+    </div>
+    <button class="ov-test-btn" id="testAudioBtn" onclick="testAudio()">▶ ASCOLTA TEST AUDIO</button>
+    <div class="ov-test-status" id="testStatus">Premi per verificare le cuffie</div>
+  </div>
+
+  <!-- VU meter microfono -->
+  <div class="ov-card">
+    <div class="ov-card-title">🎤 Livello microfono</div>
+    <div class="ov-vu-row">
+      <span class="ov-vu-icon">🎤</span>
+      <div class="ov-vu-wrap"><div class="ov-vu-bar" id="ovVuBar"></div></div>
+      <span class="ov-vu-lbl" id="ovVuLbl">—</span>
+    </div>
+    <div style="font-size:9px;color:#444;letter-spacing:1px;margin-top:8px;text-align:center;">
+      Parla per verificare che il microfono riceva segnale
+    </div>
+  </div>
+
+  <button class="unlock-btn" onclick="unlock()">▶ ENTRA IN SERVIZIO</button>
+  <div style="font-size:9px;color:#333;letter-spacing:2px;text-align:center;margin-top:8px;">
+    Tieni lo schermo acceso durante il servizio
+  </div>
 </div>
 
 <div style="text-align:center;">
@@ -112,6 +208,15 @@ body {
   <span class="ptt-icon">🎙</span>
   <span class="ptt-label" id="pttLabel">TIENI PER PARLARE</span>
 </button>
+
+<!-- VU meter mic nella schermata operativa -->
+<div class="mic-vu-wrap">
+  <span class="mic-vu-lbl">🎤</span>
+  <div class="mic-vu-bar-outer">
+    <div class="mic-vu-bar-inner" id="micVuBar"></div>
+  </div>
+  <span class="mic-vu-lbl" id="micVuPct" style="text-align:right"></span>
+</div>
 
 <!-- Replay last instruction -->
 <button class="replay-btn" onclick="requestReplay()">
@@ -142,6 +247,115 @@ document.head.querySelector('[rel=manifest]')?.setAttribute('href', `manifest.js
 let ws = null, reconnectTimer = null, heartbeatTimer = null;
 let wakeLock = null, lastAudioBlob = null;
 let lkRoom = null, localTrack = null;
+let testAudioEl = null;
+let ovVuStream = null, ovVuCtx = null, ovVuInterval = null;
+let micVuCtx = null, micVuInterval = null;
+let currentVolume = 0.8;
+
+// ---------------------------------------------------------------------------
+// Overlay — Test audio + Volume + VU mic
+// ---------------------------------------------------------------------------
+function updateVolume(val) {
+  currentVolume = val / 100;
+  document.getElementById('volVal').textContent = val + '%';
+  if (testAudioEl) testAudioEl.volume = currentVolume;
+}
+
+async function testAudio() {
+  const btn = document.getElementById('testAudioBtn');
+  const status = document.getElementById('testStatus');
+  // Avvia VU meter mic se non già attivo
+  startOverlayVu();
+  // Recupera audio test dal server
+  btn.textContent = '⏳ Caricamento...';
+  status.textContent = '';
+  try {
+    const r = await fetch(`${HTTP_PROTOCOL}//${SERVER_HOST}/api/tts/test-audio`);
+    if (!r.ok) throw new Error('Audio non disponibile');
+    const blob = await r.blob();
+    if (testAudioEl) { testAudioEl.pause(); testAudioEl.src = ''; }
+    testAudioEl = new Audio(URL.createObjectURL(blob));
+    testAudioEl.volume = currentVolume;
+    testAudioEl.onended = () => {
+      btn.textContent = '▶ ASCOLTA TEST AUDIO';
+      status.textContent = '✓ Cuffie verificate — regola il volume se necessario';
+      status.style.color = 'var(--green)';
+    };
+    await testAudioEl.play();
+    btn.textContent = '⏹ IN RIPRODUZIONE...';
+    status.textContent = 'Stai ascoltando — regola il volume con lo slider';
+    status.style.color = 'var(--accent)';
+  } catch(e) {
+    btn.textContent = '▶ ASCOLTA TEST AUDIO';
+    status.textContent = 'Errore: ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+}
+
+async function startOverlayVu() {
+  if (ovVuStream) return; // già attivo
+  try {
+    ovVuStream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+    ovVuCtx    = new (window.AudioContext || window.webkitAudioContext)();
+    const src  = ovVuCtx.createMediaStreamSource(ovVuStream);
+    const analyzer = ovVuCtx.createAnalyser();
+    analyzer.fftSize = 256;
+    src.connect(analyzer);
+    const data = new Uint8Array(analyzer.frequencyBinCount);
+    const bar  = document.getElementById('ovVuBar');
+    const lbl  = document.getElementById('ovVuLbl');
+    ovVuInterval = setInterval(() => {
+      analyzer.getByteFrequencyData(data);
+      const avg = data.reduce((a,b)=>a+b,0) / data.length;
+      const pct = Math.min(100, avg * 2.5);
+      if (bar) {
+        bar.style.width = pct + '%';
+        bar.className = 'ov-vu-bar' + (pct>80?' hot':pct>55?' warn':'');
+      }
+      if (lbl) lbl.textContent = Math.round(pct) + '%';
+    }, 50);
+  } catch(e) {
+    const lbl = document.getElementById('ovVuLbl');
+    if (lbl) lbl.textContent = 'N/A';
+  }
+}
+
+function stopOverlayVu() {
+  if (ovVuInterval) { clearInterval(ovVuInterval); ovVuInterval = null; }
+  if (ovVuStream)   { ovVuStream.getTracks().forEach(t=>t.stop()); ovVuStream = null; }
+  if (ovVuCtx)      { ovVuCtx.close().catch(()=>{}); ovVuCtx = null; }
+}
+
+// VU meter mic nella schermata operativa (usa il track LiveKit)
+function startMicVu(track) {
+  if (!track?.mediaStreamTrack) return;
+  try {
+    micVuCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const stream   = new MediaStream([track.mediaStreamTrack]);
+    const src      = micVuCtx.createMediaStreamSource(stream);
+    const analyzer = micVuCtx.createAnalyser();
+    analyzer.fftSize = 256;
+    src.connect(analyzer);
+    const data = new Uint8Array(analyzer.frequencyBinCount);
+    const bar  = document.getElementById('micVuBar');
+    const pct  = document.getElementById('micVuPct');
+    micVuInterval = setInterval(() => {
+      analyzer.getByteFrequencyData(data);
+      const avg = data.reduce((a,b)=>a+b,0) / data.length;
+      const p   = Math.min(100, avg * 2.5);
+      if (bar) {
+        bar.style.width = p + '%';
+        bar.className = 'mic-vu-bar-inner' + (p>80?' hot':p>55?' warn':'');
+      }
+      if (pct) pct.textContent = Math.round(p) + '%';
+    }, 50);
+  } catch(e) {}
+}
+
+function stopMicVu() {
+  if (micVuInterval) { clearInterval(micVuInterval); micVuInterval = null; }
+  if (micVuCtx)      { micVuCtx.close().catch(()=>{}); micVuCtx = null; }
+}
 
 // ---------------------------------------------------------------------------
 // Log
@@ -161,26 +375,31 @@ function addLog(msg, type = "") {
 // Unlock
 // ---------------------------------------------------------------------------
 async function unlock() {
+  // Ferma VU meter overlay e test audio
+  stopOverlayVu();
+  if (testAudioEl) { testAudioEl.pause(); testAudioEl = null; }
   document.getElementById("overlay").style.display = "none";
+
   // Avvia silent audio (Spotify approach)
-  document.getElementById("silentAudio").volume = 0.001;
-  document.getElementById("silentAudio").play().catch(()=>{});
+  const silent = document.getElementById("silentAudio");
+  silent.volume = 0.001;
+  silent.play().catch(()=>{});
+
   // MediaSession
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: `TV Intercom — CAM ${CAMERA_ID}`, artist: 'In servizio', album: 'TV Intercom',
     });
     navigator.mediaSession.playbackState = 'playing';
-    navigator.mediaSession.setActionHandler('play', () => document.getElementById("silentAudio").play());
-    navigator.mediaSession.setActionHandler('pause', () => document.getElementById("silentAudio").play());
+    navigator.mediaSession.setActionHandler('play', () => silent.play());
+    navigator.mediaSession.setActionHandler('pause', () => silent.play());
   }
   // Wake Lock
   if ('wakeLock' in navigator) {
     try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
   }
-  // Connetti WebSocket istruzioni
+  // Connetti
   connectWS();
-  // Connetti LiveKit voce
   connectLiveKit();
 }
 
@@ -300,8 +519,10 @@ async function connectLiveKit() {
     });
     await lkRoom.localParticipant.publishTrack(localTrack);
     await new Promise(r => setTimeout(r, 300));
-    
     await localTrack.mute();
+
+    // Avvia VU meter mic indipendente dal mute LiveKit
+    startMicVu(localTrack);
     addLog("Microfono pronto — PTT attivo", "ok");
 
   } catch(e) {
@@ -528,6 +749,15 @@ document.addEventListener('visibilitychange', async () => {
     if (!lkRoom || lkRoom.state !== 'connected') connectLiveKit();
   }
 });
+
+// Avvia VU meter mic nell'overlay non appena la pagina è pronta
+// (richiede interazione utente per getUserMedia — parte al primo tocco)
+document.addEventListener('touchstart', function initOverlayVu() {
+  startOverlayVu();
+  document.removeEventListener('touchstart', initOverlayVu);
+}, { once: true });
+// Su desktop parte subito
+startOverlayVu();
 </script>
 </body>
 </html>
