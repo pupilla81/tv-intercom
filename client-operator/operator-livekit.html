@@ -326,6 +326,67 @@ function stopOverlayVu() {
   if (ovVuCtx)      { ovVuCtx.close().catch(()=>{}); ovVuCtx = null; }
 }
 
+// ---------------------------------------------------------------------------
+// Mic keepalive — Android background mic workaround
+// Tre tecniche combinate per tenere il mic attivo con schermo bloccato:
+// 1. getUserMedia con constraints "telephony" (sampleRate 8000, channelCount 1)
+// 2. Loopback silenzioso: mic → AudioContext → GainNode(0) → destination
+// 3. OscillatorNode silenzioso come backup per tenere attivo l'AudioContext
+// ---------------------------------------------------------------------------
+let keepaliveCtx    = null;
+let keepaliveStream = null;
+let keepaliveNodes  = [];  // [source, gain, oscillator]
+
+async function startMicKeepalive() {
+  if (keepaliveCtx) return; // già attivo
+  try {
+    // Constraints "telephony" — convince Android che è una chiamata
+    keepaliveStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation:  true,
+        noiseSuppression:  true,
+        autoGainControl:   true,
+        channelCount:      1,
+        sampleRate:        8000,  // frequenza telefonica
+      }
+    });
+
+    keepaliveCtx = new (window.AudioContext || window.webkitAudioContext)({
+      sampleRate: 8000,
+      latencyHint: 'interactive',
+    });
+    await keepaliveCtx.resume();
+
+    // Loopback silenzioso: mic → gain(0) → destination
+    // Android vede mic occupato da un AudioContext attivo → non lo sospende
+    const src  = keepaliveCtx.createMediaStreamSource(keepaliveStream);
+    const gain = keepaliveCtx.createGain();
+    gain.gain.value = 0;  // silenzioso — nessun feedback audio
+    src.connect(gain);
+    gain.connect(keepaliveCtx.destination);
+
+    // Oscillator silenzioso di backup per tenere l'AudioContext vivo
+    const osc = keepaliveCtx.createOscillator();
+    const oscGain = keepaliveCtx.createGain();
+    oscGain.gain.value = 0;
+    osc.connect(oscGain);
+    oscGain.connect(keepaliveCtx.destination);
+    osc.start();
+
+    keepaliveNodes = [src, gain, osc, oscGain];
+    addLog('Mic keepalive attivo (telephony mode)', 'ok');
+  } catch(e) {
+    addLog('Mic keepalive non disponibile: ' + e.message, 'warn');
+  }
+}
+
+function stopMicKeepalive() {
+  keepaliveNodes.forEach(n => { try { n.disconnect(); } catch(x) {} });
+  keepaliveNodes = [];
+  if (keepaliveStream) { keepaliveStream.getTracks().forEach(t => t.stop()); keepaliveStream = null; }
+  if (keepaliveCtx)    { keepaliveCtx.close().catch(()=>{}); keepaliveCtx = null; }
+}
+
 // VU meter mic nella schermata operativa (usa il track LiveKit)
 function startMicVu(track) {
   if (!track?.mediaStreamTrack) return;
@@ -398,6 +459,8 @@ async function unlock() {
   if ('wakeLock' in navigator) {
     try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
   }
+  // Mic keepalive — tiene il mic attivo con schermo bloccato su Android
+  await startMicKeepalive();
   // Connetti
   connectWS();
   connectLiveKit();
@@ -744,6 +807,11 @@ document.addEventListener('visibilitychange', async () => {
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
     if (!wakeLock || wakeLock.released) {
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+    }
+    // Resume keepalive AudioContext se sospeso da Android
+    if (keepaliveCtx?.state === 'suspended') {
+      keepaliveCtx.resume().catch(()=>{});
+      addLog('Mic keepalive ripristinato', 'warn');
     }
     if (!ws || ws.readyState !== WebSocket.OPEN) connectWS();
     if (!lkRoom || lkRoom.state !== 'connected') connectLiveKit();
