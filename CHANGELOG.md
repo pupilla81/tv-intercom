@@ -1,23 +1,23 @@
-## [0.10.0] - 2026-03-21 — STT browser, prompter testo completo, fix engine
+## [0.11.0] - 2026-03-24 — Libreria copioni, SKIP cue, auto-scroll, STT tracker
 
 ### Aggiunto
-- `main.py`: `GET /api/stt/token` — restituisce API key Deepgram per uso browser
-- `main.py`: `GET /api/script/lines` — restituisce script_lines con cue risolti inline per il prompter
-- `main.py`: loader `_load_new_format` espone `script_lines` in `AppState`
-- `dashboard.html`: pannello STT con VU meter browser, enumerazione dispositivi locali, AVVIA AUTO (Deepgram JS), CLI ▾ con comando pronto e campo device number manuale
-- `dashboard.html`: prompter testo completo — personaggi, dialoghi, note regia, cue card inline cliccabili con istruzioni camera
+- `main.py`: `POST /api/cues/skip` — marca cue come fired senza inviare audio alle camere, avanza il puntatore engine. Notifica regia con `cue_skipped`
+- `main.py`: `DELETE /api/script/file?name=file.json` — elimina singolo file JSON dalla libreria senza toccare cache TTS degli altri copioni
+- `main.py`: `GET /api/script/download?name=file.json` — scarica file specifico dalla libreria o copione attivo se name non specificato
+- `dashboard.html`: libreria copioni con riga per ogni file — pulsanti `▶ CARICA`, `⬇ SCARICA`, `🗑 ELIMINA` inline. File attivo evidenziato in ambra
+- `dashboard.html`: pulsanti `▶ FIRE` + `⏭ SKIP` su ogni card del prompter e su ogni riga della cue list destra
+- `dashboard.html`: auto-scroll nel prompter al prossimo cue non scattato quando scatta un cue (via WS `cue_fired` o click manuale), attivabile/disattivabile con bottone AUTO
+- `tools/avvia_tracker.bat`: versione Windows con auto-reconnect (loop automatico su disconnessione, Ctrl+C per uscire)
+- `tools/avvia_tracker.sh`: versione macOS equivalente con auto-reconnect
 
 ### Modificato
-- `main.py`: `POST /api/stt/stop?source=browser` — non tocca `stt_active` e non notifica CLI quando a fermarsi è il browser
-- `main.py`: `POST /api/stt/chunk` — aggiunto try/except, restituisce sempre JSON valido
-- `main.py`: `_load_new_format` — aggiunto `match_threshold` al trigger (default `0.75`, gestisce `None`)
-- `tools/doc_to_script.py` — trigger auto include `match_threshold: 0.75`, trigger manuale include `match_threshold: None`
-- `client-regia/intercom-board.html`: fix `publishTrack` — rimossa opzione `muted:true` non supportata nelle versioni recenti di LiveKit, sostituita con publish + delay 300ms + mute esplicito (fix anche in operator-livekit.html)
-- `dashboard.html`: STT browser usa AudioWorklet 16kHz + fallback ScriptProcessor, MediaRecorder rimosso
+- `main.py`: `POST /api/script/load` — rileva automaticamente formato JSON nuovo (`cues` array) vs vecchio (`acts`), usa il loader corretto. Risolve errore "acts" al caricamento da libreria
+- `dashboard.html`: `markFired` aggiorna solo elementi DOM specifici invece di full re-render — risolve scroll alla prima riga su fire cue
+- `dashboard.html`: `updateNext` accetta parametro `doScroll=false` per evitare interferenze con auto-scroll del prompter
+- `dashboard.html`: bottone AUTO ▼ funziona correttamente — verde=attivo, grigio=disattivato
+- `dashboard.html`: WS handler gestisce `cue_skipped` identicamente a `cue_fired`
 
 ### Fix
-- `publishTrack {muted:true}` causava disconnect immediato da LiveKit — fix in intercom-board e operator-livekit
-- `match_threshold` mancante nel SimpleNamespace causava crash su ogni chunk STT
-- STT browser si fermava subito per loop `onclose→sttStopAuto` — fix con guard `sttActive=false` prima di `close()`
-- `stt_stopped` WebSocket interferiva con browser STT attivo — ora controlla `sttActive` prima di aggiornare UI
-- Vecchi JSON sul server con `match_threshold: null` ora gestiti con fallback `or 0.75`
+- Scroll alla prima riga del copione quando si scattava una cue — causato da `renderCueList()` che ricostruiva il DOM e resettava lo scroll del prompter prima di `scrollIntoView`
+- Auto-scroll non funzionava — ora usa `setTimeout(50ms)` per attendere fine reflow prima di eseguire lo scroll
+- Caricamento JSON dalla libreria restituiva errore "acts" — formato non riconosciuto dal vecchio `load_script_file`
