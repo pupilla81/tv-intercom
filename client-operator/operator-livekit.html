@@ -248,6 +248,7 @@ document.head.querySelector('[rel=manifest]')?.setAttribute('href', `manifest.js
 let ws = null, reconnectTimer = null, heartbeatTimer = null;
 let wakeLock = null, lastAudioBlob = null;
 let lkRoom = null, localTrack = null;
+let lkUrl = '';  // URL LiveKit salvato per uso in joinConference
 let testAudioEl = null;
 let ovVuStream = null, ovVuCtx = null, ovVuInterval = null;
 let micVuCtx = null, micVuInterval = null;
@@ -575,6 +576,7 @@ async function connectLiveKit() {
       if (badge) badge.className = regiaActive ? 'dot orange' : 'dot green';
     });
 
+    lkUrl = data.url;  // salva per uso in joinConference
     await lkRoom.connect(data.url, data.token);
 
     // Pubblica track audio MUTATO — diventa attivo solo con PTT
@@ -797,10 +799,7 @@ async function joinConference(token) {
         document.body.appendChild(el);
       }
     });
-    await confRoom.connect(
-      lkRoom.url || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/livekit`,
-      token
-    );
+    await confRoom.connect(lkUrl, token);
 
     // Abilita mic poi disabilita subito — crea il track già muto
     await confRoom.localParticipant.setMicrophoneEnabled(true);
