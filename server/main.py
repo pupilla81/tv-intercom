@@ -1019,7 +1019,7 @@ async def api_conference_open(req: ConferenceRequest):
     camera_tokens = []
     for cam_id in req.cameras:
         token = generate_token(
-            identity=f"cam{cam_id}",
+            identity=f"cam{cam_id}-conf",   # identity diversa dalla room individuale
             room=conf_room,
             can_publish=True,
             can_subscribe=True,

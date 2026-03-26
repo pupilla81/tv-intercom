@@ -584,8 +584,8 @@ async function connectAllRooms() {
         await new Promise(r => setTimeout(r, 300));
         await track.mute();
         localTracks[key] = track;
-        // Avvia VU meter sulla prima room cam
-        if (Object.keys(localTracks).length === 1) startMicMeter(track);
+        // VU meter avviato una volta sola al primo track — getUserMedia indipendente
+        if (Object.keys(localTracks).length === 1) startMicMeter();
         log(`Track audio pubblicato (muto) in ${key}`, 'ok');
       }
 
@@ -863,26 +863,28 @@ async function testMic() {
 let vuAnalyzer = null;
 let vuInterval = null;
 
-function startMicMeter(track) {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const stream = new MediaStream([track.mediaStreamTrack]);
-    const src = ctx.createMediaStreamSource(stream);
-    vuAnalyzer = ctx.createAnalyser();
-    vuAnalyzer.fftSize = 256;
-    src.connect(vuAnalyzer);
-    const data = new Uint8Array(vuAnalyzer.frequencyBinCount);
-    const bar = document.getElementById('vuBar');
-    if (vuInterval) clearInterval(vuInterval);
-    vuInterval = setInterval(() => {
-      if (!vuAnalyzer || !bar) return;
-      vuAnalyzer.getByteFrequencyData(data);
-      const avg = data.reduce((a, b) => a + b, 0) / data.length;
-      const pct = Math.min(100, avg * 2);
-      bar.style.width = pct + '%';
-      bar.className = 'vu-bar' + (pct > 80 ? ' peak' : pct > 60 ? ' warn' : '');
-    }, 50);
-  } catch(e) {}
+function startMicMeter() {
+  if (vuInterval) return; // già attivo
+  // Usa getUserMedia indipendente — non dipende dal mute LiveKit
+  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    .then(stream => {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ctx.createMediaStreamSource(stream);
+      vuAnalyzer = ctx.createAnalyser();
+      vuAnalyzer.fftSize = 256;
+      src.connect(vuAnalyzer);
+      const data = new Uint8Array(vuAnalyzer.frequencyBinCount);
+      const bar = document.getElementById('vuBar');
+      vuInterval = setInterval(() => {
+        if (!vuAnalyzer || !bar) return;
+        vuAnalyzer.getByteFrequencyData(data);
+        const avg = data.reduce((a, b) => a + b, 0) / data.length;
+        const pct = Math.min(100, avg * 2);
+        bar.style.width = pct + '%';
+        bar.className = 'vu-bar' + (pct > 80 ? ' peak' : pct > 60 ? ' warn' : '');
+      }, 50);
+    })
+    .catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
