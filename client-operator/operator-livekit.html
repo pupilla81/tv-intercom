@@ -606,7 +606,7 @@ const DOUBLE_TAP_MS = 350;
 function pttOn() {
   if (!localTrack || latchMode) return;
   localTrack.unmute();
-  if (localTrack._confTrack) localTrack._confTrack.unmute();
+  setConfMic(true);
   document.getElementById("pttBtn").classList.add("active");
   document.getElementById("pttLabel").textContent = "● TX";
 }
@@ -614,65 +614,74 @@ function pttOn() {
 function pttOff() {
   if (!localTrack || latchMode) return;
   localTrack.mute();
-  if (localTrack._confTrack) localTrack._confTrack.mute();
+  setConfMic(false);
   document.getElementById("pttBtn").classList.remove("active");
   document.getElementById("pttLabel").textContent = "TIENI PER PARLARE";
 }
 
+// pttTap: semplice toggle latch senza logica timing (gestita in touchstart)
 function pttTap() {
-  const now = Date.now();
-  const isDouble = (now - lastTapTime) < DOUBLE_TAP_MS;
-  lastTapTime = now;
-
-  if (isDouble) {
-    // Doppio tap — toglie la latch mode
-    if (latchMode) {
-      latchMode = false;
-      latchActive = false;
-      localTrack?.mute();
-      document.getElementById("pttBtn").classList.remove("active");
-      document.getElementById("pttBtn").style.borderColor = '';
-      document.getElementById("pttLabel").textContent = "TIENI PER PARLARE";
-      addLog("Latch MODE disattivato", "warn");
-    }
-    return;
-  }
-
-  if (latchMode) {
-    // In latch: tap singolo toglie/mette muto
-    latchActive = !latchActive;
-    if (latchActive) {
-      localTrack?.unmute();
-      document.getElementById("pttBtn").classList.add("active");
-      document.getElementById("pttLabel").textContent = "● LATCH TX";
-      addLog("Latch: mic APERTO", "warn");
-    } else {
-      localTrack?.mute();
-      document.getElementById("pttBtn").classList.remove("active");
-      document.getElementById("pttLabel").textContent = "LATCH — tocca per parlare";
-      addLog("Latch: mic CHIUSO", "");
-    }
+  if (!latchMode) return;
+  latchActive = !latchActive;
+  if (latchActive) {
+    localTrack?.unmute();
+    setConfMic(true);
+    document.getElementById("pttBtn").classList.add("active");
+    document.getElementById("pttLabel").textContent = "● LATCH TX";
+    addLog("Latch: mic APERTO", "warn");
+  } else {
+    localTrack?.mute();
+    setConfMic(false);
+    document.getElementById("pttBtn").classList.remove("active");
+    document.getElementById("pttLabel").textContent = "LATCH — tocca per parlare";
+    addLog("Latch: mic CHIUSO", "");
   }
 }
 
 function enableLatch() {
   latchMode = true;
   latchActive = false;
+  lastLatchTap = 0;  // resetta il timer per doppio tap in latch
   document.getElementById("pttBtn").style.borderColor = 'var(--yellow, #ffd60a)';
   document.getElementById("pttLabel").textContent = "LATCH — tocca per parlare";
   addLog("Latch MODE attivato — doppio tap per uscire", "warn");
 }
 
+function disableLatch() {
+  latchMode = false;
+  latchActive = false;
+  localTrack?.mute();
+  setConfMic(false);
+  document.getElementById("pttBtn").classList.remove("active");
+  document.getElementById("pttBtn").style.borderColor = '';
+  document.getElementById("pttLabel").textContent = "TIENI PER PARLARE";
+  addLog("Latch MODE disattivato", "warn");
+}
+
 // Pulsante touch — PTT con rilevamento doppio tap per latch
 const pttBtnEl = document.getElementById("pttBtn");
 let pttTouchStart = 0;
+let lastLatchTap = 0;  // separato da lastTapTime — solo per doppio tap EXIT latch
 
 pttBtnEl.addEventListener('touchstart', (e) => {
   e.preventDefault();
   pttTouchStart = Date.now();
   const now = Date.now();
-  if ((now - lastTapTime) < DOUBLE_TAP_MS && !latchMode) {
-    // Doppio tap — attiva latch
+
+  if (latchMode) {
+    // In latch mode: doppio tap → ESCE dal latch
+    // Singolo tap → gestito in touchend (pttTap)
+    if (lastLatchTap > 0 && (now - lastLatchTap) < DOUBLE_TAP_MS) {
+      disableLatch();
+      lastLatchTap = 0;
+    } else {
+      lastLatchTap = now;
+    }
+    return; // non chiamare pttOn in latch mode
+  }
+
+  // Modalità normale: doppio tap → ENTRA in latch
+  if ((now - lastTapTime) < DOUBLE_TAP_MS) {
     enableLatch();
     lastTapTime = 0;
     return;
@@ -683,9 +692,8 @@ pttBtnEl.addEventListener('touchstart', (e) => {
 
 pttBtnEl.addEventListener('touchend', (e) => {
   e.preventDefault();
-  const held = Date.now() - pttTouchStart;
   if (latchMode) {
-    pttTap();
+    pttTap();  // toggle mic in latch — nessuna logica timing qui
   } else {
     pttOff();
   }
@@ -765,12 +773,23 @@ document.addEventListener('keyup', e => {
 let confRoom = null;
 let confTrack = null;
 
+// Helper: controlla mic in conference via API ufficiale LiveKit
+// Più affidabile di track.mute/unmute per la conference room
+async function setConfMic(active) {
+  if (!confRoom) return;
+  try {
+    await confRoom.localParticipant.setMicrophoneEnabled(active);
+  } catch(e) {}
+}
+
 async function joinConference(token) {
   if (confRoom) await leaveConference();
   addLog("Entrando in canale conference...", "warn");
   try {
     const { Room, RoomEvent } = LivekitClient;
-    confRoom = new Room();
+    confRoom = new Room({
+      audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true },
+    });
     confRoom.on(RoomEvent.TrackSubscribed, (track) => {
       if (track.kind === 'audio') {
         const el = track.attach();
@@ -778,12 +797,21 @@ async function joinConference(token) {
         document.body.appendChild(el);
       }
     });
-    await confRoom.connect(lkRoom.url || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/livekit`, token);
-    confTrack = await LivekitClient.createLocalAudioTrack({ echoCancellation: true, noiseSuppression: true });
-    await confRoom.localParticipant.publishTrack(confTrack);
-    await new Promise(r => setTimeout(r, 300));
-    // Collega il PTT anche alla conference room
-    localTrack._confTrack = confTrack;
+    await confRoom.connect(
+      lkRoom.url || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/livekit`,
+      token
+    );
+
+    // Abilita mic poi disabilita subito — crea il track già muto
+    await confRoom.localParticipant.setMicrophoneEnabled(true);
+    await confRoom.localParticipant.setMicrophoneEnabled(false);
+
+    // Se latch è già attivo, apri subito il conf mic
+    if (latchMode && latchActive) {
+      await setConfMic(true);
+      addLog("Conference: latch già attivo — conf mic aperto", "warn");
+    }
+
     addLog("Conference: connesso ✓", "ok");
     document.getElementById("lkLabel").textContent = "CONF ✓";
   } catch(e) {
@@ -796,7 +824,6 @@ async function leaveConference() {
   await confRoom.disconnect();
   confRoom = null;
   confTrack = null;
-  if (localTrack) localTrack._confTrack = null;
   addLog("Conference: uscito", "warn");
   document.getElementById("lkLabel").textContent = "VOCE ✓";
 }
