@@ -225,6 +225,66 @@ body {
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* Overlay cards */
+.ov-card {
+  width:100%; max-width:340px;
+  background:var(--surface); border:1px solid var(--border); border-radius:8px;
+  padding:14px 16px; margin-bottom:10px;
+}
+.ov-card-title {
+  font-size:9px; letter-spacing:3px; text-transform:uppercase;
+  color:var(--muted); margin-bottom:12px;
+}
+.ov-vol-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.ov-vol-slider {
+  -webkit-appearance:none; flex:1; height:4px;
+  background:var(--border); border-radius:2px; outline:none; cursor:pointer;
+}
+.ov-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance:none; width:18px; height:18px;
+  border-radius:50%; background:var(--accent); cursor:pointer;
+}
+.ov-vol-val { font-size:11px; color:var(--accent); min-width:36px; text-align:right; }
+.ov-vu-row  { display:flex; align-items:center; gap:10px; }
+.ov-vu-wrap { flex:1; height:7px; background:var(--border); border-radius:3px; overflow:hidden; }
+.ov-vu-bar  { height:100%; width:0%; border-radius:3px; background:var(--green); transition:width 0.05s; }
+.ov-vu-bar.warn { background:var(--orange); }
+.ov-vu-bar.hot  { background:var(--red); }
+.ov-test-btn {
+  width:100%; padding:10px; border-radius:6px; cursor:pointer; margin-top:10px;
+  background:var(--surface); border:1px solid var(--accent); color:var(--accent);
+  font-family:var(--mono); font-size:10px; letter-spacing:2px; transition:all 0.15s;
+}
+.ov-test-btn:active { background:rgba(0,200,255,0.1); }
+.ov-test-status { font-size:9px; color:var(--muted); text-align:center; margin-top:6px; min-height:14px; letter-spacing:1px; }
+.ov-enter-btn {
+  width:100%; max-width:340px;
+  background:var(--accent); border:none; border-radius:8px; padding:16px 32px;
+  font-family:monospace; font-size:12px; letter-spacing:3px;
+  color:#000; font-weight:bold; cursor:pointer; text-transform:uppercase;
+}
+
+/* Master volume nella mode-bar */
+.master-vol-row {
+  display:flex; align-items:center; gap:8px;
+  font-size:9px; letter-spacing:1px; color:var(--muted);
+}
+.master-vol-slider {
+  -webkit-appearance:none; width:80px; height:3px;
+  background:var(--border); border-radius:2px; outline:none; cursor:pointer;
+}
+.master-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance:none; width:12px; height:12px;
+  border-radius:50%; background:var(--accent); cursor:pointer;
+}
+.master-mute-btn {
+  padding:4px 10px; border-radius:3px; cursor:pointer;
+  font-family:var(--mono); font-size:9px; letter-spacing:1px;
+  border:1px solid var(--border); background:var(--surface);
+  color:var(--muted); transition:all 0.15s;
+}
+.master-mute-btn.muted { border-color:var(--red); color:var(--red); background:rgba(255,59,48,0.08); }
 </style>
 </head>
 <body>
@@ -232,14 +292,42 @@ body {
 <!-- Overlay sblocco audio -->
 <div id="audioUnlock" style="
   position:fixed; inset:0; z-index:999; background:#080b0f;
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:0; padding:28px 20px; overflow-y:auto;
 ">
-  <div style="font-size:13px; letter-spacing:4px; color:#00c8ff; text-transform:uppercase">TV Intercom — Regia</div>
-  <button onclick="startRegia()" style="
-    background:#00c8ff; border:none; border-radius:8px; padding:16px 32px;
-    font-family:monospace; font-size:12px; letter-spacing:3px;
-    color:#000; font-weight:bold; cursor:pointer; text-transform:uppercase;
-  ">▶ Entra in regia</button>
+  <div style="font-size:13px;letter-spacing:4px;color:var(--accent);text-transform:uppercase;margin-bottom:6px;">TV Intercom — Regia</div>
+  <div style="font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:20px;">Pannello di controllo</div>
+
+  <!-- Test cuffie -->
+  <div class="ov-card">
+    <div class="ov-card-title">🎧 Test cuffie</div>
+    <div class="ov-vol-row">
+      <span style="font-size:16px;">🔊</span>
+      <input type="range" class="ov-vol-slider" id="ovVolSlider" min="0" max="100" value="80"
+        oninput="ovUpdateVolume(this.value)"/>
+      <span class="ov-vol-val" id="ovVolVal">80%</span>
+    </div>
+    <button class="ov-test-btn" id="ovTestBtn" onclick="ovTestAudio()">▶ ASCOLTA TEST AUDIO</button>
+    <div class="ov-test-status" id="ovTestStatus">Premi per verificare le cuffie</div>
+  </div>
+
+  <!-- VU meter mic -->
+  <div class="ov-card">
+    <div class="ov-card-title">🎤 Livello microfono</div>
+    <div class="ov-vu-row">
+      <span style="font-size:16px;">🎤</span>
+      <div class="ov-vu-wrap"><div class="ov-vu-bar" id="ovVuBar"></div></div>
+      <span style="font-size:9px;color:var(--muted);min-width:32px;text-align:right;" id="ovVuLbl">—</span>
+    </div>
+    <div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-top:8px;text-align:center;">
+      Parla per verificare che il microfono riceva segnale
+    </div>
+  </div>
+
+  <button class="ov-enter-btn" onclick="startRegia()">▶ ENTRA IN REGIA</button>
+  <div style="font-size:9px;color:#333;letter-spacing:1px;text-align:center;margin-top:10px;line-height:1.8;">
+    Su Android usa Firefox per microfono attivo con schermo bloccato
+  </div>
 </div>
 
 <div class="header">
@@ -252,10 +340,18 @@ body {
 
 <!-- Mode bar -->
 <div class="mode-bar">
-  <button class="mode-btn active" id="btnPTT" onclick="setMode('ptt')">PTT</button>
-  <button class="mode-btn" id="btnLatch" onclick="setMode('latch')">LATCH</button>
+  <button class="mode-btn active" id="btnPTT" onclick="setMode('ptt')" title="Push-to-talk: tieni premuto per trasmettere">PTT</button>
+  <button class="mode-btn" id="btnLatch" onclick="setMode('latch')" title="Latch: click per aprire/chiudere il mic">LATCH</button>
   <div class="sep"></div>
-  <button class="mode-btn" id="btnMicTest" onclick="testMic()" style="color:var(--yellow);border-color:var(--yellow)">🎤 TEST MIC</button>
+  <div class="master-vol-row" title="Volume principale ascolto camere">
+    <span>🔊</span>
+    <input type="range" class="master-vol-slider" id="masterVolSlider" min="0" max="100" value="80"
+      oninput="setMasterVolume(this.value)" title="Volume principale"/>
+    <span id="masterVolVal" style="font-size:9px;color:var(--accent);min-width:32px;">80%</span>
+  </div>
+  <button class="master-mute-btn" id="masterMuteBtn" onclick="toggleMasterMute()" title="Muta/smuta tutto l'audio in arrivo">🔊 MASTER</button>
+  <div class="sep"></div>
+  <button class="mode-btn" id="btnMicTest" onclick="testMic()" style="color:var(--yellow);border-color:var(--yellow)" title="Verifica che il microfono funzioni">🎤 TEST MIC</button>
 </div>
 
 <div class="grid">
@@ -504,10 +600,10 @@ async function connectAllRooms() {
 function applyVolumeToParticipant(roomKey, participant) {
   if (!roomKey.startsWith('cam')) return;
   const camId = parseInt(roomKey.replace('cam', ''));
-  if (camMuted[camId]) {
+  if (masterMuted || camMuted[camId]) {
     participant.setVolume(0);
   } else {
-    participant.setVolume(camVolumes[camId]);
+    participant.setVolume(masterVolume * camVolumes[camId]);
   }
 }
 
@@ -666,19 +762,19 @@ function setCamVolume(camId, val) {
   const room = rooms[`cam${camId}`];
   if (!room) return;
   room.remoteParticipants.forEach(p => {
-    if (!camMuted[camId]) p.setVolume(camVolumes[camId]);
+    if (!masterMuted && !camMuted[camId]) p.setVolume(masterVolume * camVolumes[camId]);
   });
 }
 
 function toggleMute(camId) {
   camMuted[camId] = !camMuted[camId];
-  const btn = document.getElementById(`muteBtn${camId}`);
+  const btn  = document.getElementById(`muteBtn${camId}`);
   const room = rooms[`cam${camId}`];
   btn.textContent = camMuted[camId] ? '🔇' : '🔊';
-  btn.className = 'mute-btn' + (camMuted[camId] ? ' muted' : '');
+  btn.className   = 'mute-btn' + (camMuted[camId] ? ' muted' : '');
   if (room) {
     room.remoteParticipants.forEach(p => {
-      p.setVolume(camMuted[camId] ? 0 : camVolumes[camId]);
+      p.setVolume(masterMuted || camMuted[camId] ? 0 : masterVolume * camVolumes[camId]);
     });
   }
   log(`CAM ${camId} ${camMuted[camId] ? 'MUTATO' : 'ATTIVO'}`, camMuted[camId] ? 'warn' : 'ok');
@@ -879,18 +975,141 @@ async function closeConference() {
 // ---------------------------------------------------------------------------
 // Avvio
 // ---------------------------------------------------------------------------
+let ovTestAudioEl  = null;
+let ovVuStream     = null;
+let ovVuCtx        = null;
+let ovVuInterval   = null;
+let masterVolume   = 0.8;   // volume master ascolto camere (0-1)
+let masterMuted    = false; // mute globale ascolto
+
+function ovUpdateVolume(val) {
+  masterVolume = val / 100;
+  document.getElementById('ovVolVal').textContent = val + '%';
+  // Sincronizza lo slider nella mode-bar
+  const ms = document.getElementById('masterVolSlider');
+  const mv = document.getElementById('masterVolVal');
+  if (ms) ms.value = val;
+  if (mv) mv.textContent = val + '%';
+  if (ovTestAudioEl) ovTestAudioEl.volume = masterVolume;
+}
+
+async function ovTestAudio() {
+  const btn    = document.getElementById('ovTestBtn');
+  const status = document.getElementById('ovTestStatus');
+  ovStartVu();
+  btn.textContent = '⏳ Caricamento...';
+  try {
+    const r = await fetch(`${SERVER}/api/tts/test-audio`);
+    if (!r.ok) throw new Error('Audio non disponibile');
+    const blob = await r.blob();
+    if (ovTestAudioEl) { ovTestAudioEl.pause(); }
+    ovTestAudioEl = new Audio(URL.createObjectURL(blob));
+    ovTestAudioEl.volume = masterVolume;
+    ovTestAudioEl.onended = () => {
+      btn.textContent = '▶ ASCOLTA TEST AUDIO';
+      status.textContent = '✓ Cuffie verificate';
+      status.style.color = 'var(--green)';
+    };
+    await ovTestAudioEl.play();
+    btn.textContent = '⏹ IN RIPRODUZIONE...';
+    status.textContent = 'Regola il volume con lo slider';
+    status.style.color = 'var(--accent)';
+  } catch(e) {
+    btn.textContent = '▶ ASCOLTA TEST AUDIO';
+    status.textContent = 'Errore: ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+}
+
+async function ovStartVu() {
+  if (ovVuStream) return;
+  try {
+    ovVuStream  = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+    ovVuCtx     = new (window.AudioContext || window.webkitAudioContext)();
+    const src   = ovVuCtx.createMediaStreamSource(ovVuStream);
+    const anal  = ovVuCtx.createAnalyser();
+    anal.fftSize = 256;
+    src.connect(anal);
+    const data  = new Uint8Array(anal.frequencyBinCount);
+    const bar   = document.getElementById('ovVuBar');
+    const lbl   = document.getElementById('ovVuLbl');
+    ovVuInterval = setInterval(() => {
+      anal.getByteFrequencyData(data);
+      const avg = data.reduce((a,b)=>a+b,0)/data.length;
+      const pct = Math.min(100, avg * 2.5);
+      if (bar) { bar.style.width=pct+'%'; bar.className='ov-vu-bar'+(pct>80?' hot':pct>55?' warn':''); }
+      if (lbl) lbl.textContent = Math.round(pct)+'%';
+    }, 50);
+  } catch(e) {}
+}
+
+function ovStopVu() {
+  if (ovVuInterval) { clearInterval(ovVuInterval); ovVuInterval = null; }
+  if (ovVuStream)   { ovVuStream.getTracks().forEach(t=>t.stop()); ovVuStream = null; }
+  if (ovVuCtx)      { ovVuCtx.close().catch(()=>{}); ovVuCtx = null; }
+}
+
 function startRegia() {
+  // Ferma test audio e VU overlay
+  ovStopVu();
+  if (ovTestAudioEl) { ovTestAudioEl.pause(); ovTestAudioEl = null; }
+  // Applica il volume master agli slider
+  const val = Math.round(masterVolume * 100);
+  const ms  = document.getElementById('masterVolSlider');
+  const mv  = document.getElementById('masterVolVal');
+  if (ms) ms.value = val;
+  if (mv) mv.textContent = val + '%';
   document.getElementById('audioUnlock').style.display = 'none';
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  ctx.resume().then(() => {
-    ctx.close();
-    init();
-  });
+  ctx.resume().then(() => { ctx.close(); init(); });
+}
+
+// Master volume — applica a tutte le room attive
+function setMasterVolume(val) {
+  masterVolume = val / 100;
+  document.getElementById('masterVolVal').textContent = val + '%';
+  // Sincronizza overlay slider se visibile
+  const os = document.getElementById('ovVolSlider');
+  const ov = document.getElementById('ovVolVal');
+  if (os) os.value = val;
+  if (ov) ov.textContent = val + '%';
+  if (masterMuted) return;
+  // Applica a tutti i partecipanti nelle room cam
+  for (let i = 1; i <= NUM_CAMS; i++) {
+    const room = rooms[`cam${i}`];
+    if (!room) continue;
+    room.remoteParticipants.forEach(p => {
+      if (!camMuted[i]) p.setVolume(masterVolume * camVolumes[i]);
+    });
+  }
+}
+
+function toggleMasterMute() {
+  masterMuted = !masterMuted;
+  const btn = document.getElementById('masterMuteBtn');
+  btn.textContent = masterMuted ? '🔇 MASTER' : '🔊 MASTER';
+  btn.className   = 'master-mute-btn' + (masterMuted ? ' muted' : '');
+  // Applica mute/smute a tutti i partecipanti
+  for (let i = 1; i <= NUM_CAMS; i++) {
+    const room = rooms[`cam${i}`];
+    if (!room) continue;
+    room.remoteParticipants.forEach(p => {
+      p.setVolume(masterMuted ? 0 : (camMuted[i] ? 0 : masterVolume * camVolumes[i]));
+    });
+  }
+  log(masterMuted ? 'Master mute ON — ascolto disattivato' : 'Master mute OFF — ascolto attivo',
+      masterMuted ? 'warn' : 'ok');
 }
 
 // Avvio
 buildMatrix();
 buildConfButtons();
+// Avvia VU overlay al primo tocco su mobile
+document.addEventListener('touchstart', function initOvVu() {
+  ovStartVu();
+  document.removeEventListener('touchstart', initOvVu);
+}, { once: true });
+ovStartVu(); // su desktop parte subito
 // init() viene chiamata da startRegia()
 </script>
 </body>
