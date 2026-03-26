@@ -485,6 +485,7 @@ input[type=range].sl::-webkit-slider-thumb {
 <div class="tabs">
   <button class="tab active" id="tab-home" onclick="sw('home')">HOME</button>
   <button class="tab" id="tab-prompter" onclick="sw('prompter')">PROMPTER</button>
+  <button class="tab" id="tab-settings" onclick="sw('settings')">⚙ SETTINGS</button>
 </div>
 
 <!-- ══ TAB HOME ══ -->
@@ -637,41 +638,8 @@ input[type=range].sl::-webkit-slider-thumb {
       </div>
     </div>
 
-    <!-- COL 3: TTS config + manual cues -->
+    <!-- COL 3: Cue manuali -->
     <div class="col scrollable">
-
-      <div class="sec">
-        <div class="sec-h">TTS — CONFIGURAZIONE</div>
-        <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
-          <div>
-            <div class="flbl">VOCE ELEVENLABS</div>
-            <select class="inp" id="tts-voice"><option value="">— caricamento —</option></select>
-          </div>
-          <div>
-            <div class="flbl">MODELLO</div>
-            <select class="inp" id="tts-model"><option value="eleven_multilingual_v2">Multilingual v2</option><option value="eleven_monolingual_v1">Monolingual v1</option></select>
-          </div>
-          <div class="slider-w"><div class="flbl">STABILITÀ</div>
-            <div class="slider-r"><input type="range" class="sl" id="sl-stab" min="0" max="100" value="75" oninput="sv('sv-stab',this.value)"/><span class="sv" id="sv-stab">75%</span></div>
-          </div>
-          <div class="slider-w"><div class="flbl">SIMILARITY</div>
-            <div class="slider-r"><input type="range" class="sl" id="sl-sim" min="0" max="100" value="75" oninput="sv('sv-sim',this.value)"/><span class="sv" id="sv-sim">75%</span></div>
-          </div>
-          <div class="slider-w"><div class="flbl">STYLE</div>
-            <div class="slider-r"><input type="range" class="sl" id="sl-sty" min="0" max="100" value="0" oninput="sv('sv-sty',this.value)"/><span class="sv" id="sv-sty">0%</span></div>
-          </div>
-          <div>
-            <div class="flbl">TEST AUDIO</div>
-            <input type="text" class="inp" id="tts-test" value="Audio intercom attivo. Test microfono."/>
-          </div>
-        </div>
-        <div class="brow">
-          <button class="btn a" onclick="ttsSave()">APPLICA</button>
-          <button class="btn" onclick="ttsTest()">▶ TEST</button>
-          <button class="btn g" onclick="ttsPregen()" title="Rigenera tutti gli audio con la config attuale">⟳ RIGENERA TUTTI</button>
-        </div>
-        <div id="tts-status" style="font-size:9px;padding:4px 13px;color:var(--muted);min-height:18px;letter-spacing:1px;"></div>
-      </div>
 
       <div class="sec">
         <div class="sec-h">CUE MANUALI</div>
@@ -720,6 +688,104 @@ input[type=range].sl::-webkit-slider-thumb {
     </div>
     <div class="cue-list" id="cueList">
       <div style="padding:18px 13px;color:var(--muted);font-size:9px;letter-spacing:1px;">Nessun copione caricato</div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ══ TAB SETTINGS ══ -->
+<div class="tpane" id="pane-settings" style="height:calc(100vh - 122px);overflow-y:auto;">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px 20px;max-width:1000px;">
+
+  <!-- ── Camere ── -->
+  <div>
+    <div class="sec" style="border-radius:4px;overflow:hidden;margin-bottom:16px;">
+      <div class="sec-h">📷 LINK CAMERE OPERATORI</div>
+      <div class="sec-b" style="display:flex;flex-direction:column;gap:8px;" id="cam-links">
+        <!-- filled by JS -->
+      </div>
+    </div>
+
+    <!-- STT -->
+    <div class="sec" style="border-radius:4px;overflow:hidden;margin-bottom:16px;">
+      <div class="sec-h">🎤 STT — PARAMETRI</div>
+      <div class="sec-b" style="display:flex;flex-direction:column;gap:10px;">
+        <div>
+          <div class="flbl">ENGINE</div>
+          <select class="inp" id="stt-eng-s">
+            <option value="deepgram">Deepgram (~2s latenza)</option>
+            <option value="whisper">Whisper (locale, offline)</option>
+          </select>
+        </div>
+        <div class="slider-w">
+          <div class="flbl" style="display:flex;justify-content:space-between;">
+            <span>SOGLIA FUZZY MATCH</span>
+            <span class="sv" id="sv-match">75%</span>
+          </div>
+          <div style="font-size:9px;color:var(--muted);margin-bottom:4px;letter-spacing:0;">
+            Percentuale minima di somiglianza per scattare un cue automatico
+          </div>
+          <input type="range" class="sl" id="sl-match" min="50" max="95" value="75"
+            oninput="sv('sv-match',this.value+'%')"/>
+        </div>
+        <button class="btn a w" onclick="saveSTTSettings()"
+          title="Applica le impostazioni STT al server">APPLICA</button>
+        <div id="stt-settings-status" style="font-size:9px;color:var(--muted);min-height:14px;letter-spacing:1px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TTS ── -->
+  <div>
+    <div class="sec" style="border-radius:4px;overflow:hidden;margin-bottom:16px;">
+      <div class="sec-h">🔊 TTS — CONFIGURAZIONE VOCE</div>
+      <div class="sec-b" style="display:flex;flex-direction:column;gap:8px;">
+        <div>
+          <div class="flbl">VOCE ELEVENLABS</div>
+          <select class="inp" id="tts-voice"><option value="">— caricamento —</option></select>
+        </div>
+        <div>
+          <div class="flbl">MODELLO</div>
+          <select class="inp" id="tts-model">
+            <option value="eleven_multilingual_v2">Multilingual v2 (italiano)</option>
+            <option value="eleven_monolingual_v1">Monolingual v1 (inglese)</option>
+          </select>
+        </div>
+        <div class="slider-w"><div class="flbl">STABILITÀ</div>
+          <div class="slider-r"><input type="range" class="sl" id="sl-stab" min="0" max="100" value="75" oninput="sv('sv-stab',this.value)"/><span class="sv" id="sv-stab">75%</span></div>
+        </div>
+        <div class="slider-w"><div class="flbl">SIMILARITY</div>
+          <div class="slider-r"><input type="range" class="sl" id="sl-sim" min="0" max="100" value="75" oninput="sv('sv-sim',this.value)"/><span class="sv" id="sv-sim">75%</span></div>
+        </div>
+        <div class="slider-w"><div class="flbl">STYLE</div>
+          <div class="slider-r"><input type="range" class="sl" id="sl-sty" min="0" max="100" value="0" oninput="sv('sv-sty',this.value)"/><span class="sv" id="sv-sty">0%</span></div>
+        </div>
+        <div>
+          <div class="flbl">TESTO DI TEST</div>
+          <input type="text" class="inp" id="tts-test" value="Audio intercom attivo. Test microfono."/>
+        </div>
+      </div>
+      <div class="brow">
+        <button class="btn a" onclick="ttsSave()" title="Applica voce e parametri al server">APPLICA</button>
+        <button class="btn" onclick="ttsTest()" title="Riproduci audio di test con le impostazioni attuali">▶ TEST</button>
+        <button class="btn g" onclick="ttsPregen()" title="Rigenera tutti gli audio TTS con la config attuale">⟳ RIGENERA</button>
+      </div>
+      <div id="tts-status" style="font-size:9px;padding:4px 13px;color:var(--muted);min-height:18px;letter-spacing:1px;"></div>
+    </div>
+
+    <!-- Link utili -->
+    <div class="sec" style="border-radius:4px;overflow:hidden;">
+      <div class="sec-h">🔗 LINK UTILI</div>
+      <div class="sec-b" style="display:flex;flex-direction:column;gap:7px;">
+        <button class="btn w" onclick="window.open('/regia/intercom-board.html','_blank')"
+          title="Apre il pannello intercom vocale">📡 Pannello Intercom Regia ↗</button>
+        <button class="btn w" onclick="window.open('/docs','_blank')"
+          title="Documentazione API FastAPI">📄 API Docs ↗</button>
+        <div style="font-size:9px;color:var(--muted);margin-top:4px;letter-spacing:1px;">
+          <span id="settings-uptime">Uptime: —</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -786,10 +852,11 @@ function clock() {
 
 /* ══ TABS ══ */
 function sw(t) {
-  ['home','prompter'].forEach(x => {
+  ['home','prompter','settings'].forEach(x => {
     document.getElementById('tab-'+x).classList.toggle('active', x===t);
     document.getElementById('pane-'+x).classList.toggle('active', x===t);
   });
+  if (t === 'settings') buildSettingsPage();
 }
 
 /* ══ WEBSOCKET ══ */
@@ -1719,6 +1786,84 @@ function fmtUp(s) {
   return Math.floor(s/3600)+'h'+Math.floor((s%3600)/60)+'m';
 }
 
+
+/* ══ SETTINGS ══ */
+function buildSettingsPage() {
+  buildCamLinks();
+  updateSettingsUptime();
+}
+
+function buildCamLinks() {
+  const base = window.location.origin;
+  const container = document.getElementById('cam-links');
+  if (!container || container.children.length > 0) return;
+  for (let i = 1; i <= 5; i++) {
+    const url = `${base}/operator/operator-livekit.html?cam=${i}`;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    row.innerHTML = `
+      <div style="font-size:10px;color:var(--text);min-width:50px;letter-spacing:1px;">CAM ${i}</div>
+      <div style="flex:1;font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;
+        white-space:nowrap;background:var(--bg);border:1px solid var(--border);
+        border-radius:3px;padding:5px 8px;">${url}</div>
+      <button class="btn" style="padding:4px 8px;font-size:9px;flex-shrink:0;"
+        onclick="copyText('${url}',this)" title="Copia link negli appunti">📋</button>
+      <button class="btn" style="padding:4px 8px;font-size:9px;flex-shrink:0;"
+        onclick="window.open('${url}','_blank')" title="Apri PWA operatore CAM ${i}">↗</button>
+    `;
+    container.appendChild(row);
+  }
+  // Aggiungi anche il link alla vecchia PWA istruzioni
+  const sep = document.createElement('div');
+  sep.style.cssText = 'font-size:9px;color:var(--muted);letter-spacing:1px;margin-top:4px;';
+  sep.textContent = 'PWA istruzioni (sola ricezione):';
+  container.appendChild(sep);
+  for (let i = 1; i <= 5; i++) {
+    const url = `${base}/operator/?cam=${i}`;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    row.innerHTML = `
+      <div style="font-size:10px;color:var(--muted);min-width:50px;letter-spacing:1px;">CAM ${i}</div>
+      <div style="flex:1;font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;
+        white-space:nowrap;background:var(--bg);border:1px solid var(--border);
+        border-radius:3px;padding:5px 8px;">${url}</div>
+      <button class="btn" style="padding:4px 8px;font-size:9px;flex-shrink:0;"
+        onclick="copyText('${url}',this)" title="Copia link negli appunti">📋</button>
+    `;
+    container.appendChild(row);
+  }
+}
+
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    btn.style.color = 'var(--green)';
+    setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
+  } catch(e) { toast('Copia manuale','a'); }
+}
+
+function updateSettingsUptime() {
+  const el = document.getElementById('settings-uptime');
+  if (!el) return;
+  const u = status.uptime_seconds || 0;
+  const hh = String(Math.floor(u/3600)).padStart(2,'0');
+  const mm = String(Math.floor((u%3600)/60)).padStart(2,'0');
+  const ss = String(u%60).padStart(2,'0');
+  el.textContent = `Uptime server: ${hh}:${mm}:${ss}`;
+}
+
+async function saveSTTSettings() {
+  const matchVal = parseInt(document.getElementById('sl-match').value) / 100;
+  const el = document.getElementById('stt-settings-status');
+  // Salva in localStorage per ora — applicato al prossimo caricamento copione
+  localStorage.setItem('stt_match_threshold', matchVal);
+  el.textContent = `✓ Soglia salvata: ${Math.round(matchVal*100)}%`;
+  el.style.color = 'var(--green)';
+  addLog(`STT: soglia fuzzy match → ${Math.round(matchVal*100)}%`, 'ok');
+  setTimeout(() => { el.textContent = ''; }, 2500);
+}
 
 document.querySelectorAll('.modal-overlay').forEach(el=>{
   el.addEventListener('click',e=>{ if(e.target===el) el.classList.remove('open'); });
