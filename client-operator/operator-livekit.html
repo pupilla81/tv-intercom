@@ -454,8 +454,17 @@ async function unlock() {
       title: `TV Intercom — CAM ${CAMERA_ID}`, artist: 'In servizio', album: 'TV Intercom',
     });
     navigator.mediaSession.playbackState = 'playing';
-    navigator.mediaSession.setActionHandler('play', () => silent.play());
+    navigator.mediaSession.setActionHandler('play',  () => silent.play());
     navigator.mediaSession.setActionHandler('pause', () => silent.play());
+    // ⏮ PTT ON — ⏭ PTT OFF (funziona con schermo bloccato)
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      pttOn();
+      addLog('MediaSession: ⏮ PTT ON', 'warn');
+    });
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      pttOff();
+      addLog('MediaSession: ⏭ PTT OFF', '');
+    });
   }
   // Wake Lock
   if ('wakeLock' in navigator) {
