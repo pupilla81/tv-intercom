@@ -7,13 +7,9 @@ del copione e scatta i cue quando la similarita supera la soglia.
 
 Usa una finestra scorrevole sugli ultimi chunk STT per gestire
 le frasi spezzettate tra chunk diversi.
-
-Interfaccia pubblica:
-    engine = CueEngine(cues)
-    fired = engine.process(transcription_chunk)
-    # fired -> lista di Cue scattati, da passare al Dispatcher
 """
 
+import unicodedata
 from dataclasses import dataclass
 from typing import Callable, Optional
 from rapidfuzz import fuzz
@@ -28,6 +24,20 @@ class FiredCue:
     confidence: float
 
 
+def _normalize(text: str) -> str:
+    """
+    Normalizza il testo per il confronto fuzzy:
+    - lowercase
+    - rimuove accenti (mostrerà → mostrera)
+    - rimuove punteggiatura
+    Questo rende il matching robusto alle variazioni di trascrizione STT.
+    """
+    # Decomponi caratteri accentati e rimuovi i diacritici
+    nfkd = unicodedata.normalize('NFKD', text)
+    ascii_text = ''.join(c for c in nfkd if not unicodedata.combining(c))
+    return ascii_text.lower().strip()
+
+
 class CueEngine:
     """
     Tiene traccia della posizione nel copione e scatta i cue
@@ -38,21 +48,16 @@ class CueEngine:
     - Un cue gia scattato non puo scattare di nuovo
     - Finestra scorrevole sugli ultimi N chunk per gestire
       frasi spezzettate tra chunk diversi
+    - Lookahead aumentato per gestire cue mancati dallo STT
     """
 
     def __init__(
         self,
         cues: list[Cue],
         on_cue_fired: Optional[Callable[[FiredCue], None]] = None,
-        lookahead: int = 2,
-        window_max: int = 5,
+        lookahead: int = 4,       # aumentato da 2 a 4
+        window_max: int = 6,      # aumentato da 5 a 6
     ):
-        """
-        cues:          lista ordinata di cue (solo automatici)
-        on_cue_fired:  callback opzionale chiamata ogni volta che un cue scatta
-        lookahead:     quanti cue futuri controllare oltre al corrente
-        window_max:    quanti chunk STT tenere in memoria nella finestra scorrevole
-        """
         self.cues = cues
         self.on_cue_fired = on_cue_fired
         self.lookahead = lookahead
@@ -98,7 +103,6 @@ class CueEngine:
             if cue.fired:
                 continue
 
-            # Prendi il punteggio migliore tra chunk singolo e finestra
             best_score = max(
                 self._match(t, cue.trigger.text) for t in texts_to_test
             )
@@ -112,8 +116,11 @@ class CueEngine:
 
                 if i == 0:
                     self.pointer += 1
+                # Se il cue scattato è oltre il pointer, porta il pointer avanti
+                elif self.pointer + i >= self.pointer:
+                    self.pointer = self.pointer + i + 1
 
-                # Reset finestra dopo un match per evitare falsi positivi
+                # Reset finestra dopo un match
                 self._window_chunks.clear()
 
                 if self.on_cue_fired:
@@ -122,10 +129,6 @@ class CueEngine:
         return fired
 
     def force_fire(self, cue_id: str) -> Optional[FiredCue]:
-        """
-        Scatta manualmente un cue per cue_id (chiamato dal pannello regia).
-        Avanza il puntatore se necessario.
-        """
         for i, cue in enumerate(self.cues):
             if cue.cue_id == cue_id and not cue.fired:
                 cue.fired = True
@@ -139,7 +142,6 @@ class CueEngine:
         return None
 
     def reset(self):
-        """Riporta il motore all'inizio (utile per prove)."""
         for c in self.cues:
             c.fired = False
         self.pointer = 0
@@ -149,13 +151,13 @@ class CueEngine:
     @staticmethod
     def _match(transcription: str, trigger_text: str) -> float:
         """
-        Confronto fuzzy tra la trascrizione e la battuta-trigger.
-        Usa token_set_ratio per essere robusto a parole mancanti/aggiunte.
-        Ritorna un valore 0.0-1.0.
+        Confronto fuzzy normalizzato:
+        - rimuove accenti prima del confronto (mostrerà = mostrera)
+        - usa token_set_ratio per robustezza a parole mancanti/aggiunte
         """
         score = fuzz.token_set_ratio(
-            transcription.lower().strip(),
-            trigger_text.lower().strip()
+            _normalize(transcription),
+            _normalize(trigger_text)
         )
         return score / 100.0
 
@@ -172,39 +174,3 @@ class CueEngine:
             f"CueEngine | {fired_count}/{len(self.cues)} scattati | "
             f"Prossimo: [{next_str}] | Rimanenti: {remaining}"
         )
-
-
-# ---------------------------------------------------------------------------
-# Test / demo standalone
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    meta, all_cues = load_script("sample_script.json")
-    auto_cues = get_auto_cues(all_cues)
-
-    def on_fired(fc: FiredCue):
-        print(f"\n  FIRED: {fc.cue.cue_id} (confidenza: {fc.confidence:.0%})")
-        for instr in fc.cue.instructions:
-            print(f"     CAM {instr.camera}: {instr.text}")
-
-    engine = CueEngine(auto_cues, on_cue_fired=on_fired)
-
-    print("=" * 60)
-    print(f"Test CueEngine con finestra scorrevole")
-    print(f"Cue automatici: {len(auto_cues)}")
-    print("=" * 60)
-
-    # Simula frasi spezzettate come farebbe lo STT reale
-    test_chunks = [
-        "ti aspettavo",
-        "da tanto",
-        "credevo che non",
-        "saresti mai tornato",
-    ]
-
-    for chunk in test_chunks:
-        print(f"\n  STT chunk: \"{chunk}\"")
-        engine.process(chunk)
-
-    print("\n" + "=" * 60)
-    print("Test completato.")
