@@ -430,8 +430,9 @@ async def api_fire_cue(req: FireCueRequest):
     target.fired = True
     fc = FiredCue(cue=target, matched_text="[MANUALE]", confidence=1.0)
     state.cues_fired_count += 1
-    if target.trigger.type == "line":
-        state.engine.pointer = max(state.engine.pointer, state.all_cues.index(target) + 1)
+    if target.trigger.type == "line" and target in state.engine.cues:
+        eng_idx = state.engine.cues.index(target)
+        state.engine.pointer = max(state.engine.pointer, eng_idx + 1)
     await _dispatch_cue(fc)
     return {"ok": True, "cue_id": req.cue_id}
 
@@ -454,8 +455,9 @@ async def api_skip_cue(req: FireCueRequest):
 
     target.fired = True
     state.cues_fired_count += 1
-    if target.trigger.type == "line":
-        state.engine.pointer = max(state.engine.pointer, state.all_cues.index(target) + 1)
+    if target.trigger.type == "line" and target in state.engine.cues:
+        eng_idx = state.engine.cues.index(target)
+        state.engine.pointer = max(state.engine.pointer, eng_idx + 1)
     # Notifica la regia del skip (senza dispatch alle camere)
     await notify_directors({
         "type": "cue_skipped",
