@@ -1,23 +1,56 @@
-## [0.11.0] - 2026-03-24 — Libreria copioni, SKIP cue, auto-scroll, STT tracker
+## [0.12.0] - 2026-03-28 — Dashboard SETTINGS, STT live nel Prompter, fix conference e latch
 
 ### Aggiunto
-- `main.py`: `POST /api/cues/skip` — marca cue come fired senza inviare audio alle camere, avanza il puntatore engine. Notifica regia con `cue_skipped`
-- `main.py`: `DELETE /api/script/file?name=file.json` — elimina singolo file JSON dalla libreria senza toccare cache TTS degli altri copioni
-- `main.py`: `GET /api/script/download?name=file.json` — scarica file specifico dalla libreria o copione attivo se name non specificato
-- `dashboard.html`: libreria copioni con riga per ogni file — pulsanti `▶ CARICA`, `⬇ SCARICA`, `🗑 ELIMINA` inline. File attivo evidenziato in ambra
-- `dashboard.html`: pulsanti `▶ FIRE` + `⏭ SKIP` su ogni card del prompter e su ogni riga della cue list destra
-- `dashboard.html`: auto-scroll nel prompter al prossimo cue non scattato quando scatta un cue (via WS `cue_fired` o click manuale), attivabile/disattivabile con bottone AUTO
-- `tools/avvia_tracker.bat`: versione Windows con auto-reconnect (loop automatico su disconnessione, Ctrl+C per uscire)
-- `tools/avvia_tracker.sh`: versione macOS equivalente con auto-reconnect
+- **Tab SETTINGS** nella dashboard con layout a due colonne:
+  - Link PWA operatore CAM 1-5 (voce+PTT) con pulsanti copia e apertura diretta
+  - Link PWA istruzioni (sola ricezione) per ogni camera
+  - TTS configurazione spostata qui dalla HOME (voce, modello, stability, similarity, style, test, rigenera)
+  - STT parametri: engine selector + slider soglia fuzzy match (50-95%)
+  - Link utili: Pannello Intercom, API Docs, uptime server
+- **STT live box nel tab Prompter** — sopra la cue queue:
+  - LED verde quando STT attivo, grigio quando inattivo
+  - Testo trascrizione in tempo reale da STT CLI e STT browser
+  - Aggiornato da WS `stt_transcript` (CLI) e direttamente dal browser STT
+- **SKIP cue** su tutte le card nel prompter e nella cue queue destra:
+  - `POST /api/cues/skip` — marca cue come fired senza inviare audio alle camere
+  - Avanza il puntatore engine, notifica regia con `cue_skipped`
+- **Overlay "Entra in regia"** nell'intercom-board:
+  - Slider volume cuffie con valore iniziale 80%
+  - Pulsante test audio TTS
+  - VU meter microfono in tempo reale
+  - Nota Firefox per Android
+- **Master volume + Master mute** nella mode-bar dell'intercom-board:
+  - Slider master volume — scala proporzionalmente il volume di tutte le camere
+  - Pulsante MASTER mute — muta/smuta tutto l'audio in arrivo
+  - Volume camere proporzionale al master: `masterVolume * camVolumes[i]`
+- **MediaSession ⏮/⏭** nella PWA operatore per PTT ON/OFF con schermo bloccato
 
 ### Modificato
-- `main.py`: `POST /api/script/load` — rileva automaticamente formato JSON nuovo (`cues` array) vs vecchio (`acts`), usa il loader corretto. Risolve errore "acts" al caricamento da libreria
-- `dashboard.html`: `markFired` aggiorna solo elementi DOM specifici invece di full re-render — risolve scroll alla prima riga su fire cue
-- `dashboard.html`: `updateNext` accetta parametro `doScroll=false` per evitare interferenze con auto-scroll del prompter
-- `dashboard.html`: bottone AUTO ▼ funziona correttamente — verde=attivo, grigio=disattivato
-- `dashboard.html`: WS handler gestisce `cue_skipped` identicamente a `cue_fired`
+- **HOME col3** semplificata — rimangono solo i cue manuali (TTS config spostata in SETTINGS)
+- **cue_engine.py**: normalizzazione accenti con `unicodedata` (stdlib):
+  - `mostrerà` = `mostrera` per il fuzzy match — robusto alle trascrizioni STT senza accenti
+  - lookahead aumentato da 2 a 4 (finestra di ricerca da 3 a 5 cue)
+  - window_max aumentato da 5 a 6
+  - pointer avanza correttamente anche per match fuori posizione 0
+- **api_stt_chunk**: notifica `stt_transcript` ai director ad ogni chunk ricevuto
+- **api_stt_stop**: aggiorna sempre `stt_active=False` indipendentemente da `source`
+- **Conference token identity**: `cam{N}-conf` invece di `cam{N}` — elimina conflitti con room individuale
+- **intercom-board startMicMeter**: usa `getUserMedia` indipendente da LiveKit — VU meter funziona su tutte le camere, non solo CAM1
 
 ### Fix
-- Scroll alla prima riga del copione quando si scattava una cue — causato da `renderCueList()` che ricostruiva il DOM e resettava lo scroll del prompter prima di `scrollIntoView`
-- Auto-scroll non funzionava — ora usa `setTimeout(50ms)` per attendere fine reflow prima di eseguire lo scroll
-- Caricamento JSON dalla libreria restituiva errore "acts" — formato non riconosciuto dal vecchio `load_script_file`
+- **Conference + latch PWA operatore**: `pttTap` in latch ora gestisce correttamente `setConfMic()` — il mic conference si apre/chiude con il latch
+- **Conference mic aperto su join**: sostituito `publishTrack+mute` con `setMicrophoneEnabled(true/false)` — mic parte sempre muto
+- **Conference URL**: `lkUrl` salvato come variabile globale al momento della connessione, usato in `joinConference` invece di `lkRoom.url` (non esiste)
+- **Latch timing bug**: `pttTap` non aveva più logica timing (causa: `isDouble` sempre true su tap normali). Doppio tap per uscire dal latch ora gestito in `touchstart` con variabile separata `lastLatchTap`
+- **LED STT header**: `api_stt_stop` aggiornava `stt_active` solo per source!=browser — il poll restituiva sempre `true`. Fix: aggiornamento sempre eseguito
+- **LED STT prompter**: non si spegneva allo stop. Fix in `sttStopAuto` e `updateUI`
+- **VU meter intercom-board**: funzionava solo su CAM1 perché `startMicMeter(track)` dipendeva dal track LiveKit. Fix: `getUserMedia` indipendente, guard `if (vuInterval) return`
+- **Conference camere 3-5 non comunicavano**: identity `cam{N}` in conflitto con room individuale — fix con `cam{N}-conf`
+- **Scroll alla prima riga su fire cue**: `markFired` aggiorna solo elementi DOM specifici senza full re-render
+- **Auto-scroll prompter**: `setTimeout(50ms)` dopo reflow prima di `scrollIntoView`
+
+### Leggibilità dashboard
+- `--muted` da `#3d5060` a `#6a8a9a` — molto più leggibile su sfondo scuro
+- Font base `13px`, dialogo prompter `16px`, line-height `2.0`
+- Bottoni più grandi con `min-height: 28px` touch-friendly
+- Tooltip `title` su tutti i pulsanti principali
