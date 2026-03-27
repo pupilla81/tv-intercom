@@ -824,6 +824,8 @@ async def api_stt_chunk(req: STTChunkRequest):
         if not state.engine:
             return {"fired": [], "pointer": 0}
         fired = state.engine.process(req.text)
+        # Notifica la regia con la trascrizione — aggiorna box STT nel prompter
+        await notify_directors({"type": "stt_transcript", "text": req.text})
         return {
             "fired": [f.cue.cue_id for f in fired],
             "pointer": state.engine.pointer,

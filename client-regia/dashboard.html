@@ -681,6 +681,22 @@ input[type=range].sl::-webkit-slider-thumb {
   <div class="cue-panel">
     <div class="cp-head">CUE QUEUE <button class="btn r" style="padding:2px 8px;font-size:8px;" onclick="resetEngine()"
       title="Resetta engine: tutti i cue tornano a non-scattato">RESET</button></div>
+
+    <!-- STT live box -->
+    <div style="padding:9px 13px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg2);">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;">
+        <div id="p-stt-dot" style="width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;"></div>
+        <span style="font-size:9px;letter-spacing:2px;color:var(--muted);" id="p-stt-lbl">STT INATTIVO</span>
+      </div>
+      <div id="p-stt-txt" style="
+        font-size:12px;line-height:1.6;color:var(--text);
+        min-height:38px;max-height:72px;overflow-y:auto;
+        background:var(--surface);border:1px solid var(--border);
+        border-radius:3px;padding:6px 9px;
+        font-style:italic;
+      ">—</div>
+    </div>
+
     <div class="ncb" id="ncb" style="display:none;">
       <div class="ncb-lbl">PROSSIMO CUE</div>
       <div class="ncb-txt" id="ncb-txt">—</div>
@@ -895,15 +911,19 @@ function onMsg(m) {
       document.getElementById('stt-st').textContent='ATTIVO';
       document.getElementById('stt-st').className='stt-st active';
       document.getElementById('stt-det').textContent=`ENGINE: ${m.engine?.toUpperCase()} / DEV ${m.device}`;
+      updatePrompterSTT(true, '');
       addLog(`STT avviato — ${m.engine} dev ${m.device}`,'ok'); break;
     case 'stt_stopped':
       led('stt','off','STT');
-      // Non interrompere il browser STT se è lui stesso che ha generato l'evento
       if (!sttActive) {
         document.getElementById('stt-st').textContent='INATTIVO';
         document.getElementById('stt-st').className='stt-st';
+        updatePrompterSTT(false, '');
       }
       addLog('STT fermato','warn'); break;
+    case 'stt_transcript':
+      // chunk trascrizione in arrivo — aggiorna box prompter
+      updatePrompterSTT(true, m.text); break;
     case 'engine_reset':
       addLog('Engine resettato','warn'); loadCues(); pollStatus(); break;
     case 'scene_changed':
@@ -913,6 +933,32 @@ function onMsg(m) {
       addLog('Copione e cache TTS cancellati dal server','warn');
       renderCueList(); renderManualCues(); renderScript(); populateSceneSelect();
       break;
+  }
+}
+
+function updatePrompterSTT(active, text) {
+  const dot = document.getElementById('p-stt-dot');
+  const lbl = document.getElementById('p-stt-lbl');
+  const txt = document.getElementById('p-stt-txt');
+  if (!dot) return;
+  if (active) {
+    dot.style.background = 'var(--green)';
+    dot.style.boxShadow  = '0 0 5px var(--green)';
+    lbl.textContent = 'STT LIVE';
+    lbl.style.color = 'var(--green)';
+    if (text) {
+      txt.textContent = text;
+      txt.style.color = 'var(--text)';
+      txt.style.fontStyle = 'normal';
+    }
+  } else {
+    dot.style.background = 'var(--muted)';
+    dot.style.boxShadow  = 'none';
+    lbl.textContent = 'STT INATTIVO';
+    lbl.style.color = 'var(--muted)';
+    txt.textContent = '—';
+    txt.style.color = 'var(--muted)';
+    txt.style.fontStyle = 'italic';
   }
 }
 
@@ -1470,8 +1516,9 @@ registerProcessor('pcm-processor', PCMProcessor);`;
       if (!alt?.transcript) return;
       const text = alt.transcript.trim();
       if (!text) return;
-      // Mostra trascrizione live
+      // Mostra trascrizione live in HOME e nel PROMPTER
       document.getElementById('stt-transcript').textContent = text;
+      updatePrompterSTT(true, text);
       // Invia chunk finale al cue engine
       if (msg.is_final) {
         await fetch(`${S}/api/stt/chunk`, {method:'POST',
