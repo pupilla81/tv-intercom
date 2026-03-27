@@ -918,8 +918,8 @@ function onMsg(m) {
       if (!sttActive) {
         document.getElementById('stt-st').textContent='INATTIVO';
         document.getElementById('stt-st').className='stt-st';
-        updatePrompterSTT(false, '');
       }
+      updatePrompterSTT(false, '');
       addLog('STT fermato','warn'); break;
     case 'stt_transcript':
       // chunk trascrizione in arrivo — aggiorna box prompter
@@ -985,6 +985,8 @@ async function pollStatus() {
 function updateUI() {
   led('sc', status.script_loaded?'on':'off', 'COPIONE');
   led('stt', status.stt_active?'on':'off', 'STT');
+  // Sincronizza box STT nel prompter con lo stato reale del server
+  if (!status.stt_active && !sttActive) updatePrompterSTT(false, '');
   document.getElementById('m-cams').textContent = (status.cameras_connected||[]).length;
   document.getElementById('m-fired').textContent = status.cues_fired||0;
   document.getElementById('m-up').textContent = fmtUp(status.uptime_seconds||0);
@@ -1558,6 +1560,7 @@ async function sttStopAuto() {
   document.getElementById('stt-transcript').textContent = '—';
   document.getElementById('stt-mode-tag').textContent = 'BROWSER';
   document.getElementById('stt-mode-tag').className   = 'tag';
+  updatePrompterSTT(false, '');
 }
 
 /* ── CLI fallback ── */
