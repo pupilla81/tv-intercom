@@ -805,11 +805,11 @@ async def api_stt_start(req: STTStartRequest):
 @app.post("/api/stt/stop")
 async def api_stt_stop(source: str = ""):
     """Segnala che lo STT deve fermarsi.
-    Se source='browser', non modifica stt_active e non notifica gli altri client
-    (evita di fermare il CLI Python in esecuzione parallela).
+    Aggiorna sempre stt_active (per il pollStatus/LED header).
+    Se source='browser', non notifica gli altri client per non fermare il CLI Python.
     """
+    state.stt_active = False
     if source != "browser":
-        state.stt_active = False
         await notify_directors({"type": "stt_stopped"})
     log.info(f"STT fermato (source={source or 'dashboard'})")
     return {"ok": True}
