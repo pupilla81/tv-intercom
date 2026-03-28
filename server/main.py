@@ -217,10 +217,8 @@ async def load_script_file(path: str):
     state.engine = CueEngine(auto, on_cue_fired=on_cue_fired)
 
     # Pre-genera tutti gli audio TTS in background
-    if state.tts:
-        log.info("TTS pre-generazione audio in corso...")
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, state.tts.pregenerate_all, cues)
+    # al momento disabilitato
+
 
     return meta, cues
 
