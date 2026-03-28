@@ -1,0 +1,120 @@
+{
+  "metadata": {
+    "title": "prova",
+    "date": "",
+    "location": "",
+    "scenes": [
+      {
+        "scene_id": 6,
+        "scene_name": "Orto"
+      }
+    ]
+  },
+  "script_lines": [
+    {
+      "type": "scene_header",
+      "scene_id": 6,
+      "scene_name": "Orto"
+    },
+    {
+      "type": "character",
+      "text": "LETTORE"
+    },
+    {
+      "type": "dialogue",
+      "text": "Detto questo, Gesù uscì",
+      "char": "LETTORE"
+    },
+    {
+      "type": "manual_desc",
+      "text": "fine ballo"
+    },
+    {
+      "type": "cue_ref",
+      "cue_id": "S6-M01"
+    },
+    {
+      "type": "character",
+      "text": "LETTORE"
+    },
+    {
+      "type": "dialogue",
+      "text": "con i suoi discepoli e andò di là dal torrente Cèdron, dove c’era un giardino nel quale entrò insieme a loro. Anche Giuda, il traditore, conosceva quel posto, perché Gesù vi si ritirava spesso.",
+      "char": "LETTORE"
+    },
+    {
+      "type": "character",
+      "text": "GESU"
+    },
+    {
+      "type": "dialogue",
+      "text": "La mia anima è triste fino alla morte.",
+      "char": "GESU"
+    },
+    {
+      "type": "cue_ref",
+      "cue_id": "S6-A02"
+    },
+    {
+      "type": "character",
+      "text": "GESU"
+    },
+    {
+      "type": "dialogue",
+      "text": "Sedetevi qui, io vado più in là a pregare!",
+      "char": "GESU"
+    }
+  ],
+  "cues": [
+    {
+      "cue_id": "S6-M01",
+      "scene_id": 6,
+      "scene_name": "Orto",
+      "trigger": {
+        "type": "manual",
+        "text": "fine ballo",
+        "match_threshold": null
+      },
+      "instructions": [
+        {
+          "camera": 1,
+          "text": "no"
+        },
+        {
+          "camera": 2,
+          "text": "no"
+        },
+        {
+          "camera": 3,
+          "text": "no"
+        }
+      ],
+      "fired": false
+    },
+    {
+      "cue_id": "S6-A02",
+      "scene_id": 6,
+      "scene_name": "Orto",
+      "trigger": {
+        "type": "line",
+        "text": "La mia anima è triste fino alla morte.",
+        "match_threshold": 0.75
+      },
+      "instructions": [
+        {
+          "camera": 1,
+          "text": "si."
+        },
+        {
+          "camera": 2,
+          "text": "si."
+        },
+        {
+          "camera": 4,
+          "text": "si."
+        }
+      ],
+      "fired": false
+    }
+  ]
+}

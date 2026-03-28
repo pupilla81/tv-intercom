@@ -661,10 +661,6 @@ async def load_new_format_file(path: str):
     auto = [c for c in cues if c.trigger.type == "line"]
     state.engine = CueEngine(auto, on_cue_fired=on_cue_fired)
 
-    if state.tts:
-        log.info("TTS pre-generazione audio in corso...")
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, state.tts.pregenerate_all, cues)
 
     return meta, cues
 
