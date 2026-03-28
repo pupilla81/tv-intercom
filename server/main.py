@@ -319,9 +319,7 @@ async def api_script_upload_file(file: UploadFile = File(...)):
             state.script_loaded = True
             auto = [c for c in cues if c.trigger.type == "line"]
             state.engine = CueEngine(auto, on_cue_fired=on_cue_fired)
-            if state.tts:
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, state.tts.pregenerate_all, cues)
+          
         except Exception:
             meta, cues = await load_script_file(str(script_path))
 
