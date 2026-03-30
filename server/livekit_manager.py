@@ -36,6 +36,8 @@ NUM_CAMERAS = 5
 
 ROOM_GENERAL = "intercom-general"
 
+log.info(f"LiveKit config: url={LIVEKIT_URL} cameras={NUM_CAMERAS}")
+
 def room_name(cam_id: int) -> str:
     return f"intercom-cam{cam_id}"
 
@@ -49,6 +51,8 @@ def generate_token(
     can_subscribe: bool = True,
     ttl_seconds: int = 14400,
 ) -> str:
+    log.debug(f"Token: identity={identity} room={room} "
+              f"pub={can_publish} sub={can_subscribe} ttl={ttl_seconds}s")
     token = (
         AccessToken(LIVEKIT_KEY, LIVEKIT_SECRET)
         .with_identity(identity)

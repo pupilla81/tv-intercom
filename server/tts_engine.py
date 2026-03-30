@@ -11,6 +11,7 @@ Voce predefinita: italiana ad alta qualità (Aria o Rachel di ElevenLabs)
 import hashlib
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -47,20 +48,14 @@ class TTSEngine:
     def __init__(self, api_key: str, voice_id: str = DEFAULT_VOICE_ID):
         self.api_key = api_key
         self.voice_id = voice_id
-        self.voice_settings = dict(TTS_SETTINGS)  # copia d'istanza — aggiornabile a runtime
-        self._cache: dict[str, bytes] = {}
+        self._cache: dict[str, bytes] = {}  # hash del testo → bytes WAV
         self._client = httpx.Client(timeout=30.0)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        log.info(f"TTS Engine inizializzato | voce: {voice_id}")
-
-    def update_config(self, voice_id: str = None, settings: dict = None):
-        """Aggiorna voce e/o parametri a runtime senza riavviare il server."""
-        if voice_id:
-            self.voice_id = voice_id
-            log.info(f"TTS voce aggiornata: {voice_id}")
-        if settings:
-            self.voice_settings.update(settings)
-            log.info(f"TTS settings aggiornati: {settings}")
+        # Conta file in cache su disco
+        cached_files = list(CACHE_DIR.glob("*.mp3"))
+        log.info(f"TTS Engine inizializzato | voce={voice_id} | "
+                 f"model={TTS_MODEL} | cache_dir={CACHE_DIR} | "
+                 f"file in cache: {len(cached_files)}")
 
     def _text_hash(self, text: str) -> str:
         """Hash del testo per la cache."""
@@ -71,6 +66,7 @@ class TTSEngine:
 
     def _generate(self, text: str) -> Optional[bytes]:
         """Chiama ElevenLabs API e ritorna i bytes audio."""
+        t0 = time.time()
         try:
             resp = self._client.post(
                 f"{ELEVENLABS_API_URL}/text-to-speech/{self.voice_id}",
@@ -81,16 +77,24 @@ class TTSEngine:
                 json={
                     "text": text,
                     "model_id": TTS_MODEL,
-                    "voice_settings": self.voice_settings,
+                    "voice_settings": TTS_SETTINGS,
                 },
             )
+            elapsed = (time.time() - t0) * 1000
             if resp.status_code == 200:
+                log.debug(f"  ElevenLabs API OK: {len(resp.content)}B in {elapsed:.0f}ms")
                 return resp.content
             else:
-                log.error(f"ElevenLabs error {resp.status_code}: {resp.text}")
+                log.error(f"  ElevenLabs API {resp.status_code} dopo {elapsed:.0f}ms: "
+                          f"{resp.text[:200]}")
                 return None
+        except httpx.TimeoutException as e:
+            elapsed = (time.time() - t0) * 1000
+            log.error(f"  ElevenLabs TIMEOUT dopo {elapsed:.0f}ms: {e}")
+            return None
         except Exception as e:
-            log.error(f"Errore chiamata TTS: {e}")
+            elapsed = (time.time() - t0) * 1000
+            log.error(f"  ElevenLabs ERRORE dopo {elapsed:.0f}ms: {e}", exc_info=True)
             return None
 
     def get_audio(self, text: str) -> Optional[bytes]:
@@ -99,9 +103,11 @@ class TTSEngine:
         Usa la cache in memoria, poi su disco, poi genera da API.
         """
         h = self._text_hash(text)
+        short = text[:40] + ('...' if len(text) > 40 else '')
 
         # 1. Cache in memoria
         if h in self._cache:
+            log.debug(f"  TTS cache MEM hit [{h}]: '{short}'")
             return self._cache[h]
 
         # 2. Cache su disco
@@ -109,15 +115,18 @@ class TTSEngine:
         if cache_file.exists():
             audio = cache_file.read_bytes()
             self._cache[h] = audio
+            log.debug(f"  TTS cache DISCO hit [{h}]: '{short}' ({len(audio)}B)")
             return audio
 
         # 3. Genera da API
-        log.info(f"  TTS generando: \"{text[:50]}...\"" if len(text) > 50 else f"  TTS generando: \"{text}\"")
+        log.info(f"  TTS genera da API [{h}]: '{short}'")
         audio = self._generate(text)
         if audio:
             self._cache[h] = audio
             cache_file.write_bytes(audio)
-            log.info(f"  TTS generato e salvato in cache ({len(audio)} bytes)")
+            log.info(f"  TTS salvato in cache [{h}]: {len(audio)}B")
+        else:
+            log.warning(f"  TTS generazione fallita [{h}]: '{short}'")
         return audio
 
     def pregenerate_all(self, cues: list) -> dict[str, int]:
@@ -128,8 +137,10 @@ class TTSEngine:
         """
         stats = {"generated": 0, "cached": 0, "errors": 0}
         total = sum(len(cue.instructions) for cue in cues)
-        log.info(f"TTS pre-generazione: {total} istruzioni...")
+        t0 = time.time()
+        log.info(f"TTS pre-generazione: {total} istruzioni da {len(cues)} cue...")
 
+        done = 0
         for cue in cues:
             for instr in cue.instructions:
                 if not instr.text:
@@ -149,9 +160,19 @@ class TTSEngine:
                     else:
                         stats["errors"] += 1
 
+                done += 1
+                # Progress ogni 10 istruzioni generate (non cached)
+                if stats["generated"] > 0 and stats["generated"] % 10 == 0:
+                    elapsed = time.time() - t0
+                    log.info(f"  TTS progresso: {done}/{total} "
+                             f"(gen={stats['generated']}, cache={stats['cached']}, "
+                             f"err={stats['errors']}) — {elapsed:.1f}s")
+
+        elapsed = time.time() - t0
         log.info(
-            f"TTS completato: {stats['generated']} generati, "
-            f"{stats['cached']} da cache, {stats['errors']} errori"
+            f"TTS pre-generazione completata in {elapsed:.1f}s: "
+            f"{stats['generated']} generati, {stats['cached']} da cache, "
+            f"{stats['errors']} errori | cache mem: {len(self._cache)} voci"
         )
         return stats
 
@@ -161,23 +182,30 @@ class TTSEngine:
         ignorando la cache. Usato quando un'istruzione viene modificata.
         """
         h = self._text_hash(text)
+        short = text[:40] + ('...' if len(text) > 40 else '')
+        log.info(f"TTS regenerate [{h}]: '{short}'")
         # Rimuovi dalla cache
         self._cache.pop(h, None)
         cache_file = self._cache_path(h)
         if cache_file.exists():
             cache_file.unlink()
+            log.debug(f"  Cache disco rimossa [{h}]")
         # Rigenera
         return self.get_audio(text)
 
     def list_voices(self) -> list[dict]:
         """Lista le voci disponibili su ElevenLabs."""
+        log.debug("Richiesta lista voci ElevenLabs...")
         try:
+            t0 = time.time()
             resp = self._client.get(
                 f"{ELEVENLABS_API_URL}/voices",
                 headers={"xi-api-key": self.api_key},
             )
+            elapsed = (time.time() - t0) * 1000
             if resp.status_code == 200:
                 voices = resp.json().get("voices", [])
+                log.info(f"Lista voci: {len(voices)} disponibili ({elapsed:.0f}ms)")
                 return [
                     {
                         "voice_id": v["voice_id"],
@@ -187,8 +215,10 @@ class TTSEngine:
                     }
                     for v in voices
                 ]
+            else:
+                log.error(f"Lista voci fallita: {resp.status_code} ({elapsed:.0f}ms)")
         except Exception as e:
-            log.error(f"Errore lista voci: {e}")
+            log.error(f"Errore lista voci: {e}", exc_info=True)
         return []
 
     def close(self):
