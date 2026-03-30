@@ -116,6 +116,10 @@ class AppState:
         # Code per camera — invio sequenziale, no crash su fire rapido
         self.camera_queues: dict[int, asyncio.Queue] = {}
         self.queue_workers: dict[int, asyncio.Task] = {}
+        # Timeout connessioni — ultimo ping ricevuto per camera
+        self.camera_last_ping: dict[int, float] = {}
+
+CAMERA_PING_TIMEOUT = 15  # secondi senza ping → camera considerata morta
 
 state = AppState()
 
@@ -146,6 +150,9 @@ async def startup():
     else:
         log.warning(f"Nessun copione trovato in {SCRIPT_PATH}")
 
+    # Avvia watchdog connessioni camera
+    asyncio.create_task(_camera_watchdog())
+
 # ---------------------------------------------------------------------------
 # Helper: notifica la regia
 # ---------------------------------------------------------------------------
@@ -163,6 +170,40 @@ async def notify_directors(event: dict):
     if dead:
         log.debug(f"Rimossi {len(dead)} director WS morti, "
                    f"restano {len(state.director_connections)}")
+
+# ---------------------------------------------------------------------------
+# Watchdog: rileva camere "fantasma" (connessione persa senza disconnect)
+# ---------------------------------------------------------------------------
+async def _camera_watchdog():
+    """Controlla ogni 5s se qualche camera non manda ping da troppo tempo."""
+    log.info(f"📡 Camera watchdog avviato (timeout={CAMERA_PING_TIMEOUT}s)")
+    while True:
+        await asyncio.sleep(5)
+        now = time.time()
+        dead_cams = []
+        for cam_id, last_ping in list(state.camera_last_ping.items()):
+            if cam_id not in state.operator_connections:
+                continue
+            elapsed = now - last_ping
+            if elapsed > CAMERA_PING_TIMEOUT:
+                dead_cams.append((cam_id, elapsed))
+
+        for cam_id, elapsed in dead_cams:
+            log.warning(f"📡 CAM{cam_id} timeout ({elapsed:.0f}s senza ping) "
+                        f"— chiudo connessione fantasma")
+            ws = state.operator_connections.pop(cam_id, None)
+            state.camera_last_ping.pop(cam_id, None)
+            _stop_camera_worker(cam_id)
+            if ws:
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+            await notify_directors({
+                "type": "camera_disconnected",
+                "camera": cam_id,
+                "cameras_online": list(state.operator_connections.keys()),
+            })
 
 # ---------------------------------------------------------------------------
 # Helper: recupera audio
@@ -694,6 +735,7 @@ async def ws_camera(websocket: WebSocket, camera_id: int):
     if old_ws:
         log.warning(f"📷 CAM{camera_id} riconnessa — sostituisco vecchia connessione")
     state.operator_connections[camera_id] = websocket
+    state.camera_last_ping[camera_id] = time.time()
     _start_camera_worker(camera_id)
     log.info(f"📷 CAM{camera_id} connessa (+ queue worker) | "
              f"camere online: {list(state.operator_connections.keys())}")
@@ -710,6 +752,7 @@ async def ws_camera(websocket: WebSocket, camera_id: int):
             msg = json.loads(data)
 
             if msg.get("type") == "ping":
+                state.camera_last_ping[camera_id] = time.time()
                 await websocket.send_text(json.dumps({"type": "pong"}))
 
             elif msg.get("type") == "replay":
@@ -741,6 +784,7 @@ async def ws_camera(websocket: WebSocket, camera_id: int):
 
     except WebSocketDisconnect:
         state.operator_connections.pop(camera_id, None)
+        state.camera_last_ping.pop(camera_id, None)
         _stop_camera_worker(camera_id)
         log.info(f"📷 CAM{camera_id} disconnessa (queue worker fermato) | "
                  f"camere online: {list(state.operator_connections.keys())}")
@@ -751,6 +795,7 @@ async def ws_camera(websocket: WebSocket, camera_id: int):
         })
     except Exception as e:
         state.operator_connections.pop(camera_id, None)
+        state.camera_last_ping.pop(camera_id, None)
         _stop_camera_worker(camera_id)
         log.error(f"📷 CAM{camera_id} errore WS (queue worker fermato): {e}",
                   exc_info=True)
