@@ -22,3 +22,7 @@ __pycache__/
 Thumbs.db
 venv/
 venv/
+
+# Ignora tutti i file di log, mantieni la cartella
+*.log
+*.log.*
