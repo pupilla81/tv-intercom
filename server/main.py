@@ -361,6 +361,30 @@ class LoadScriptRequest(BaseModel):
 async def load_script_file(path: str):
     log.info(f"📄 Caricamento copione: {path}")
     t0 = time.time()
+
+    # --- Reset pulito dello stato precedente ---
+    old_title = state.metadata.get("title", "")
+    if state.script_loaded:
+        log.info(f"  Reset stato precedente: '{old_title}'")
+    # Reset engine
+    if state.engine:
+        state.engine.reset()
+    state.cues_fired_count = 0
+    state.last_text.clear()
+    state.last_audio.clear()
+    # Svuota code camera
+    flushed = 0
+    for cam_id, q in state.camera_queues.items():
+        while not q.empty():
+            try:
+                q.get_nowait()
+                flushed += 1
+            except asyncio.QueueEmpty:
+                break
+    if flushed:
+        log.info(f"  Code svuotate: {flushed} item residui")
+
+    # --- Carica nuovo copione ---
     meta, cues = load_script(path)
     state.metadata = meta
     state.all_cues = cues
