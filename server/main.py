@@ -113,6 +113,9 @@ class AppState:
         self.stt_active: bool = False
         self.stt_device: Optional[int] = None
         self.stt_engine: str = "deepgram"
+        # Code per camera — invio sequenziale, no crash su fire rapido
+        self.camera_queues: dict[int, asyncio.Queue] = {}
+        self.queue_workers: dict[int, asyncio.Task] = {}
 
 state = AppState()
 
@@ -239,6 +242,74 @@ async def send_instruction_to_camera(instr, cue_id: str):
         state.operator_connections.pop(instr.camera, None)
 
 # ---------------------------------------------------------------------------
+# Code per camera — invio sequenziale per evitare crash su fire rapido
+# ---------------------------------------------------------------------------
+async def _camera_queue_worker(cam_id: int):
+    """Processa istruzioni in coda per una camera — una alla volta."""
+    queue = state.camera_queues.get(cam_id)
+    if not queue:
+        return
+    log.debug(f"  Queue worker CAM{cam_id} avviato")
+    while True:
+        try:
+            instr, cue_id = await queue.get()
+            await send_instruction_to_camera(instr, cue_id)
+            queue.task_done()
+        except asyncio.CancelledError:
+            log.info(f"  Queue worker CAM{cam_id} fermato")
+            break
+        except Exception as e:
+            log.error(f"  Queue worker CAM{cam_id} errore: {e}", exc_info=True)
+
+
+def _start_camera_worker(cam_id: int):
+    """Avvia coda e worker per una camera — chiamato alla connessione WS."""
+    if cam_id not in state.camera_queues:
+        state.camera_queues[cam_id] = asyncio.Queue(maxsize=50)
+    else:
+        # Svuota la coda vecchia se la camera si riconnette
+        q = state.camera_queues[cam_id]
+        dropped = 0
+        while not q.empty():
+            try:
+                q.get_nowait()
+                dropped += 1
+            except asyncio.QueueEmpty:
+                break
+        if dropped:
+            log.warning(f"  CAM{cam_id} riconnessa: svuotati {dropped} item dalla coda")
+    # Cancella worker precedente se esiste
+    old_task = state.queue_workers.pop(cam_id, None)
+    if old_task:
+        old_task.cancel()
+    state.queue_workers[cam_id] = asyncio.create_task(_camera_queue_worker(cam_id))
+    log.debug(f"  Queue worker CAM{cam_id} (ri)avviato")
+
+
+def _stop_camera_worker(cam_id: int):
+    """Ferma worker e rimuove coda — chiamato alla disconnessione WS."""
+    task = state.queue_workers.pop(cam_id, None)
+    if task:
+        task.cancel()
+    state.camera_queues.pop(cam_id, None)
+    log.debug(f"  Queue worker CAM{cam_id} fermato e rimosso")
+
+
+async def _enqueue_instruction(instr, cue_id: str):
+    """Accoda un'istruzione per una camera. Non blocca."""
+    queue = state.camera_queues.get(instr.camera)
+    if not queue:
+        log.warning(f"  CAM{instr.camera} non ha coda — cue {cue_id} perso")
+        return False
+    try:
+        queue.put_nowait((instr, cue_id))
+        log.debug(f"  CAM{instr.camera} coda: +1 (pending={queue.qsize()}) | cue={cue_id}")
+        return True
+    except asyncio.QueueFull:
+        log.error(f"  ❌ CAM{instr.camera} coda PIENA (50) — cue {cue_id} SCARTATO")
+        return False
+
+# ---------------------------------------------------------------------------
 # Callback CueEngine → Dispatcher
 # ---------------------------------------------------------------------------
 def on_cue_fired(fc: FiredCue):
@@ -252,12 +323,17 @@ async def _dispatch_cue(fc: FiredCue):
     t0 = time.time()
     cue_id = fc.cue.cue_id
     try:
-        tasks = [send_instruction_to_camera(instr, cue_id) for instr in fc.cue.instructions]
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        enqueued = 0
+        dropped = 0
+        for instr in fc.cue.instructions:
+            ok = await _enqueue_instruction(instr, cue_id)
+            if ok:
+                enqueued += 1
+            else:
+                dropped += 1
         elapsed = (time.time() - t0) * 1000
-        log.info(f"  ✅ dispatch {cue_id} completato in {elapsed:.0f}ms "
-                 f"({len(tasks)} istruzioni)")
+        log.info(f"  ✅ dispatch {cue_id} accodato in {elapsed:.0f}ms | "
+                 f"enqueued={enqueued} dropped={dropped}")
     except Exception as e:
         elapsed = (time.time() - t0) * 1000
         log.error(f"  ❌ dispatch {cue_id} FALLITO dopo {elapsed:.0f}ms: {e}",
@@ -334,6 +410,10 @@ async def api_status():
         "stt_active": state.stt_active,
         "stt_device": state.stt_device,
         "stt_engine": state.stt_engine,
+        "queues_pending": {
+            cam_id: q.qsize()
+            for cam_id, q in state.camera_queues.items()
+        },
     }
 
 @app.get("/api/cues")
@@ -390,8 +470,17 @@ async def api_reset():
         state.cues_fired_count = 0
         state.last_text.clear()
         state.last_audio.clear()
+        # Svuota code camera
+        flushed = 0
+        for cam_id, q in state.camera_queues.items():
+            while not q.empty():
+                try:
+                    q.get_nowait()
+                    flushed += 1
+                except asyncio.QueueEmpty:
+                    break
         log.info(f"  Reset completato | pointer {old_pointer}→0 | "
-                 f"fired {old_fired}→0")
+                 f"fired {old_fired}→0 | code svuotate: {flushed} item")
     else:
         log.warning("  Reset richiesto ma engine non inizializzato")
     await notify_directors({"type": "engine_reset"})
@@ -581,7 +670,8 @@ async def ws_camera(websocket: WebSocket, camera_id: int):
     if old_ws:
         log.warning(f"📷 CAM{camera_id} riconnessa — sostituisco vecchia connessione")
     state.operator_connections[camera_id] = websocket
-    log.info(f"📷 CAM{camera_id} connessa | "
+    _start_camera_worker(camera_id)
+    log.info(f"📷 CAM{camera_id} connessa (+ queue worker) | "
              f"camere online: {list(state.operator_connections.keys())}")
 
     await notify_directors({
@@ -627,7 +717,8 @@ async def ws_camera(websocket: WebSocket, camera_id: int):
 
     except WebSocketDisconnect:
         state.operator_connections.pop(camera_id, None)
-        log.info(f"📷 CAM{camera_id} disconnessa | "
+        _stop_camera_worker(camera_id)
+        log.info(f"📷 CAM{camera_id} disconnessa (queue worker fermato) | "
                  f"camere online: {list(state.operator_connections.keys())}")
         await notify_directors({
             "type": "camera_disconnected",
@@ -636,7 +727,9 @@ async def ws_camera(websocket: WebSocket, camera_id: int):
         })
     except Exception as e:
         state.operator_connections.pop(camera_id, None)
-        log.error(f"📷 CAM{camera_id} errore WS: {e}", exc_info=True)
+        _stop_camera_worker(camera_id)
+        log.error(f"📷 CAM{camera_id} errore WS (queue worker fermato): {e}",
+                  exc_info=True)
         await notify_directors({
             "type": "camera_disconnected",
             "camera": camera_id,
