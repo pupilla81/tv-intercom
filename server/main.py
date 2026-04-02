@@ -746,6 +746,25 @@ async def ws_camera(websocket: WebSocket, camera_id: int):
         "cameras_online": list(state.operator_connections.keys()),
     })
 
+    # Se c'è una conference attiva che include questa camera, invitala
+    if conference_state["active"] and camera_id in conference_state["cameras"]:
+        try:
+            conf_room = conference_state["room"]
+            token = generate_token(
+                identity=f"cam{camera_id}",
+                room=conf_room,
+                can_publish=True,
+                can_subscribe=True,
+            )
+            await websocket.send_text(json.dumps({
+                "type": "join_conference",
+                "token": token,
+                "room": conf_room,
+            }))
+            log.info(f"  CAM{camera_id} auto-join conference room '{conf_room}'")
+        except Exception as e:
+            log.error(f"  CAM{camera_id} auto-join conference fallito: {e}")
+
     try:
         while True:
             data = await websocket.receive_text()
@@ -944,7 +963,7 @@ async def api_conference_open(req: ConferenceRequest):
     director_token = generate_token(
         identity="director-conf",
         room=conf_room,
-        can_publish=True,
+        can_publish=False,    # Regia solo in ascolto nella conference
         can_subscribe=True,
     )
 

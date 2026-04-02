@@ -629,8 +629,8 @@ function updateCamOnline(camId, online) {
   if (!btn) return;
   if (online) {
     btn.style.borderColor = 'var(--green)';
-    if (stateEl && stateEl.textContent === 'OFFLINE') {
-      stateEl.textContent = 'ONLINE';
+    if (stateEl) {
+      stateEl.textContent = 'STANDBY';
       stateEl.style.color = 'var(--green)';
     }
   } else {
@@ -662,10 +662,6 @@ async function activateChannel(camKey) {
   await track.unmute();
   activeChannels.add(camKey);
   const camId = parseInt(camKey.replace('cam', ''));
-  // Se la conference è aperta e questa camera è inclusa, sblocca il mic conf
-  if (confDirectorTrack && confSelectedCams.has(camId)) {
-    await confDirectorTrack.unmute();
-  }
   const btn = document.getElementById(`camBtn${camId}`);
   const state = document.getElementById(`camState${camId}`);
   if (btn) { btn.classList.add('listening'); btn.classList.remove('speaking-remote'); }
@@ -678,15 +674,14 @@ async function deactivateChannel(camKey) {
   if (!track) return;
   await track.mute();
   activeChannels.delete(camKey);
-  // Rimuta conf track se nessun canale attivo
-  if (confDirectorTrack && activeChannels.size === 0) {
-    await confDirectorTrack.mute();
-  }
   const camId = parseInt(camKey.replace('cam', ''));
   const btn = document.getElementById(`camBtn${camId}`);
   const state = document.getElementById(`camState${camId}`);
   if (btn) btn.classList.remove('listening');
-  if (state) state.textContent = camSpeaking[camId] ? 'PARLA' : 'STANDBY';
+  if (state) {
+    state.textContent = camSpeaking[camId] ? 'PARLA' : 'STANDBY';
+    state.style.color = camSpeaking[camId] ? 'var(--orange)' : 'var(--green)';
+  }
   updateMicState();
 }
 
@@ -892,7 +887,6 @@ function startMicMeter() {
 // ---------------------------------------------------------------------------
 let confSelectedCams = new Set();
 let confRoomObj = null;
-let confDirectorTrack = null;
 
 function buildConfButtons() {
   const container = document.getElementById('confCamButtons');
@@ -942,18 +936,15 @@ async function openConference() {
     });
     confRoomObj.on(RoomEvent.ParticipantConnected, (p) => log(`Conf: ${p.identity} connesso`, 'ok'));
 
+    // Director entra SOLO IN ASCOLTO — nessun track audio pubblicato.
+    // La conference è per le camere che parlano tra loro.
+    // Il director parla alle camere tramite i canali individuali (PTT).
     await confRoomObj.connect(data.url || lkUrl, data.director_token);
-    confDirectorTrack = await LivekitClient.createLocalAudioTrack({echoCancellation: true, noiseSuppression: true});
-    // Pubblica senza opzione muted (non supportata nelle versioni recenti di LiveKit)
-    // poi muta subito dopo un breve delay per lasciare stabilizzare la connessione
-    await confRoomObj.localParticipant.publishTrack(confDirectorTrack);
-    await new Promise(r => setTimeout(r, 300));
-    await confDirectorTrack.mute();
 
     const camList = [...confSelectedCams].map(c => `CAM${c}`).join(', ');
     document.getElementById('confStatus').textContent = `APERTO: ${camList}`;
     document.getElementById('confStatus').style.color = 'var(--green)';
-    log(`Conference aperta: ${camList}`, 'ok');
+    log(`Conference aperta (ascolto): ${camList}`, 'ok');
 
   } catch(e) { log('Errore conference: ' + e.message, 'err'); }
 }
@@ -963,7 +954,6 @@ async function closeConference() {
   await fetch(`${SERVER}/api/livekit/conference/close`, {method: 'POST'});
   await confRoomObj.disconnect();
   confRoomObj = null;
-  confDirectorTrack = null;
   document.getElementById('confStatus').textContent = 'CHIUSO';
   document.getElementById('confStatus').style.color = 'var(--muted)';
   log('Conference chiusa', 'warn');
