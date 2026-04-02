@@ -652,6 +652,10 @@ function micToggle() {
   else micOn();
 }
 
+// Alias per compatibilità con app Android (JavascriptInterface chiama pttOn/pttOff)
+function pttOn()  { micOn();  }
+function pttOff() { micOff(); }
+
 // Pulsante touch — toggle
 const pttBtnEl = document.getElementById("pttBtn");
 

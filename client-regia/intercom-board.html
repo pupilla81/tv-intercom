@@ -433,6 +433,7 @@ let activeChannels = new Set(); // room attive in trasmissione
 let camVolumes = {};       // cam_id -> volume 0-1
 let camMuted = {};         // cam_id -> bool
 let camSpeaking = {};      // cam_id -> bool
+let camOnline = {};        // cam_id -> traccia lo stato connessione reale
 let micVolume = 0.8;
 let allActive = false;
 let tokens = {};
@@ -442,6 +443,7 @@ for (let i = 1; i <= NUM_CAMS; i++) {
   camVolumes[i] = 1.0;
   camMuted[i] = false;
   camSpeaking[i] = false;
+  camOnline[i] = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -624,6 +626,7 @@ function updateConnectionStatus() {
 }
 
 function updateCamOnline(camId, online) {
+  camOnline[camId] = online;
   const btn = document.getElementById(`camBtn${camId}`);
   const stateEl = document.getElementById(`camState${camId}`);
   if (!btn) return;
@@ -677,10 +680,18 @@ async function deactivateChannel(camKey) {
   const camId = parseInt(camKey.replace('cam', ''));
   const btn = document.getElementById(`camBtn${camId}`);
   const state = document.getElementById(`camState${camId}`);
-  if (btn) btn.classList.remove('listening');
+  if (btn) {
+    btn.classList.remove('listening');
+    if (!camOnline[camId]) btn.style.borderColor = '';
+  }
   if (state) {
-    state.textContent = camSpeaking[camId] ? 'PARLA' : 'STANDBY';
-    state.style.color = camSpeaking[camId] ? 'var(--orange)' : 'var(--green)';
+    if (!camOnline[camId]) {
+      state.textContent = 'OFFLINE';
+      state.style.color = 'var(--muted)';
+    } else {
+      state.textContent = camSpeaking[camId] ? 'PARLA' : 'STANDBY';
+      state.style.color = camSpeaking[camId] ? 'var(--orange)' : 'var(--green)';
+    }
   }
   updateMicState();
 }
