@@ -28,7 +28,7 @@ body {
 .dot.orange { background:var(--orange); animation:pulse 0.8s infinite; }
 .status-bar { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; width:100%; }
 
-/* PTT Button — grande, centrale */
+/* MIC toggle button — grande, centrale */
 .ptt-btn {
   width: 200px; height: 200px;
   border-radius: 50%;
@@ -71,16 +71,91 @@ body {
 /* Unlock overlay */
 #overlay {
   position:fixed; inset:0; z-index:999; background:#0a0a0a;
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:30px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:0; padding:28px 24px; overflow-y:auto;
 }
-.unlock-btn {
-  width:100%; max-width:280px; background:var(--accent);
-  border:none; border-radius:12px; padding:18px; cursor:pointer;
-  font-size:13px; font-family:monospace; letter-spacing:3px;
-  color:#fff; font-weight:bold; text-transform:uppercase; margin-top:8px;
+.ov-logo { font-size:38px; margin-bottom:8px; }
+.ov-title { font-size:13px; letter-spacing:4px; color:#888; text-transform:uppercase; margin-bottom:4px; }
+.ov-cam   { font-size:11px; letter-spacing:3px; color:#444; margin-bottom:20px; }
+
+/* Test audio card */
+.ov-card {
+  width:100%; max-width:320px;
+  background:#141414; border:1px solid #2a2a2a; border-radius:12px;
+  padding:16px 18px; margin-bottom:12px;
+}
+.ov-card-title {
+  font-size:9px; letter-spacing:3px; text-transform:uppercase;
+  color:#555; margin-bottom:12px;
 }
 
+/* Volume slider */
+.ov-vol-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.ov-vol-icon { font-size:18px; flex-shrink:0; }
+.ov-vol-slider {
+  -webkit-appearance:none; flex:1; height:4px;
+  background:#2a2a2a; border-radius:2px; outline:none; cursor:pointer;
+}
+.ov-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance:none; width:20px; height:20px;
+  border-radius:50%; background:var(--accent); cursor:pointer;
+}
+.ov-vol-val { font-size:11px; color:var(--accent); min-width:36px; text-align:right; }
+
+/* VU meter mic */
+.ov-vu-row { display:flex; align-items:center; gap:10px; }
+.ov-vu-icon { font-size:18px; flex-shrink:0; }
+.ov-vu-wrap { flex:1; height:8px; background:#1a1a1a; border-radius:4px; overflow:hidden; }
+.ov-vu-bar  { height:100%; width:0%; border-radius:4px; background:var(--green); transition:width 0.05s; }
+.ov-vu-bar.warn { background:var(--orange); }
+.ov-vu-bar.hot  { background:var(--red); }
+.ov-vu-lbl { font-size:9px; letter-spacing:2px; color:#444; min-width:36px; text-align:right; }
+
+/* Test button */
+.ov-test-btn {
+  width:100%; padding:12px; border-radius:8px; cursor:pointer;
+  background:#1a2a1a; border:1px solid var(--green); color:var(--green);
+  font-family:monospace; font-size:11px; letter-spacing:3px; text-transform:uppercase;
+  margin-bottom:0; transition:all 0.15s;
+}
+.ov-test-btn:active { background:#003300; }
+.ov-test-status {
+  font-size:9px; letter-spacing:2px; color:#444; text-align:center;
+  margin-top:8px; min-height:14px;
+}
+
+.unlock-btn {
+  width:100%; max-width:320px; background:var(--accent);
+  border:none; border-radius:12px; padding:18px; cursor:pointer;
+  font-size:13px; font-family:monospace; letter-spacing:3px;
+  color:#fff; font-weight:bold; text-transform:uppercase;
+  margin-top:4px; transition:all 0.15s;
+}
+.unlock-btn:active { filter:brightness(0.85); }
+
+/* VU meter mic nella schermata operativa */
+.mic-vu-wrap {
+  width:100%; max-width:340px;
+  display:flex; align-items:center; gap:10px;
+}
+.mic-vu-bar-outer {
+  flex:1; height:6px; background:var(--surface); border-radius:3px;
+  border:1px solid var(--border); overflow:hidden;
+}
+.mic-vu-bar-inner { height:100%; width:0%; border-radius:3px; background:var(--green); transition:width 0.05s; }
+.mic-vu-bar-inner.warn { background:var(--orange); }
+.mic-vu-bar-inner.hot  { background:var(--red); }
+.mic-vu-lbl { font-size:9px; letter-spacing:2px; color:var(--muted); min-width:28px; }
+
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* Reconnect buttons */
+.reconn-btn {
+  cursor:pointer; font-size:14px; color:var(--muted);
+  padding:0 4px; border-radius:3px; transition:color 0.15s;
+  display:none; /* visibile solo se disconnesso */
+}
+.reconn-btn:active { color:var(--accent); }
 </style>
 </head>
 <body>
@@ -90,11 +165,41 @@ body {
 
 <!-- Unlock overlay -->
 <div id="overlay">
-  <div style="font-size:44px">🎙</div>
-  <div style="font-size:13px;letter-spacing:4px;color:#888;text-transform:uppercase">TV Intercom</div>
-  <div id="camLabelOverlay" style="font-size:11px;letter-spacing:3px;color:#555;"></div>
-  <button class="unlock-btn" onclick="unlock()">Entra in servizio</button>
-  <div style="font-size:10px;color:#333;letter-spacing:2px;text-align:center">Connessione vocale + istruzioni automatiche</div>
+  <div class="ov-logo">🎙</div>
+  <div class="ov-title">TV Intercom</div>
+  <div class="ov-cam" id="camLabelOverlay"></div>
+
+  <!-- Test cuffie -->
+  <div class="ov-card">
+    <div class="ov-card-title">🎧 Test cuffie</div>
+    <div class="ov-vol-row">
+      <span class="ov-vol-icon">🔊</span>
+      <input type="range" class="ov-vol-slider" id="volSlider" min="0" max="100" value="80"
+        oninput="updateVolume(this.value)"/>
+      <span class="ov-vol-val" id="volVal">80%</span>
+    </div>
+    <button class="ov-test-btn" id="testAudioBtn" onclick="testAudio()">▶ ASCOLTA TEST AUDIO</button>
+    <div class="ov-test-status" id="testStatus">Premi per verificare le cuffie</div>
+  </div>
+
+  <!-- VU meter microfono -->
+  <div class="ov-card">
+    <div class="ov-card-title">🎤 Livello microfono</div>
+    <div class="ov-vu-row">
+      <span class="ov-vu-icon">🎤</span>
+      <div class="ov-vu-wrap"><div class="ov-vu-bar" id="ovVuBar"></div></div>
+      <span class="ov-vu-lbl" id="ovVuLbl">—</span>
+    </div>
+    <div style="font-size:9px;color:#444;letter-spacing:1px;margin-top:8px;text-align:center;">
+      Parla per verificare che il microfono riceva segnale
+    </div>
+  </div>
+
+  <button class="unlock-btn" onclick="unlock()">▶ ENTRA IN SERVIZIO</button>
+  <div style="font-size:9px;color:#444;letter-spacing:1px;text-align:center;margin-top:8px;line-height:1.8;">
+    Tieni lo schermo acceso durante il servizio<br>
+    <span style="color:#666;">Su Android usa Firefox per microfono attivo con schermo bloccato</span>
+  </div>
 </div>
 
 <div style="text-align:center;">
@@ -103,15 +208,28 @@ body {
 </div>
 
 <div class="status-bar">
-  <div class="badge"><div class="dot red" id="wsDot"></div><span id="wsLabel">ISTRUZIONI</span></div>
-  <div class="badge"><div class="dot red" id="lkDot"></div><span id="lkLabel">VOCE</span></div>
+  <div class="badge"><div class="dot red" id="wsDot"></div><span id="wsLabel">ISTRUZIONI</span>
+    <span class="reconn-btn" id="wsReconn" onclick="connectWS()" title="Riconnetti istruzioni">↻</span>
+  </div>
+  <div class="badge"><div class="dot red" id="lkDot"></div><span id="lkLabel">VOCE</span>
+    <span class="reconn-btn" id="lkReconn" onclick="connectLiveKit()" title="Riconnetti voce">↻</span>
+  </div>
 </div>
 
-<!-- PTT button -->
+<!-- MIC toggle button -->
 <button class="ptt-btn" id="pttBtn">
   <span class="ptt-icon">🎙</span>
-  <span class="ptt-label" id="pttLabel">TIENI PER PARLARE</span>
+  <span class="ptt-label" id="pttLabel">TOCCA PER PARLARE</span>
 </button>
+
+<!-- VU meter mic nella schermata operativa -->
+<div class="mic-vu-wrap">
+  <span class="mic-vu-lbl">🎤</span>
+  <div class="mic-vu-bar-outer">
+    <div class="mic-vu-bar-inner" id="micVuBar"></div>
+  </div>
+  <span class="mic-vu-lbl" id="micVuPct" style="text-align:right"></span>
+</div>
 
 <!-- Replay last instruction -->
 <button class="replay-btn" onclick="requestReplay()">
@@ -142,6 +260,177 @@ document.head.querySelector('[rel=manifest]')?.setAttribute('href', `manifest.js
 let ws = null, reconnectTimer = null, heartbeatTimer = null;
 let wakeLock = null, lastAudioBlob = null;
 let lkRoom = null, localTrack = null;
+let lkUrl = '';  // URL LiveKit salvato per uso in joinConference
+let testAudioEl = null;
+let ovVuStream = null, ovVuCtx = null, ovVuInterval = null;
+let micVuCtx = null, micVuInterval = null;
+let currentVolume = 0.8;
+
+// ---------------------------------------------------------------------------
+// Overlay — Test audio + Volume + VU mic
+// ---------------------------------------------------------------------------
+function updateVolume(val) {
+  currentVolume = val / 100;
+  document.getElementById('volVal').textContent = val + '%';
+  if (testAudioEl) testAudioEl.volume = currentVolume;
+}
+
+async function testAudio() {
+  const btn = document.getElementById('testAudioBtn');
+  const status = document.getElementById('testStatus');
+  // Avvia VU meter mic se non già attivo
+  startOverlayVu();
+  // Recupera audio test dal server
+  btn.textContent = '⏳ Caricamento...';
+  status.textContent = '';
+  try {
+    const r = await fetch(`${HTTP_PROTOCOL}//${SERVER_HOST}/api/tts/test-audio`);
+    if (!r.ok) throw new Error('Audio non disponibile');
+    const blob = await r.blob();
+    if (testAudioEl) { testAudioEl.pause(); testAudioEl.src = ''; }
+    testAudioEl = new Audio(URL.createObjectURL(blob));
+    testAudioEl.volume = currentVolume;
+    testAudioEl.onended = () => {
+      btn.textContent = '▶ ASCOLTA TEST AUDIO';
+      status.textContent = '✓ Cuffie verificate — regola il volume se necessario';
+      status.style.color = 'var(--green)';
+    };
+    await testAudioEl.play();
+    btn.textContent = '⏹ IN RIPRODUZIONE...';
+    status.textContent = 'Stai ascoltando — regola il volume con lo slider';
+    status.style.color = 'var(--accent)';
+  } catch(e) {
+    btn.textContent = '▶ ASCOLTA TEST AUDIO';
+    status.textContent = 'Errore: ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+}
+
+async function startOverlayVu() {
+  if (ovVuStream) return; // già attivo
+  try {
+    ovVuStream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+    ovVuCtx    = new (window.AudioContext || window.webkitAudioContext)();
+    const src  = ovVuCtx.createMediaStreamSource(ovVuStream);
+    const analyzer = ovVuCtx.createAnalyser();
+    analyzer.fftSize = 256;
+    src.connect(analyzer);
+    const data = new Uint8Array(analyzer.frequencyBinCount);
+    const bar  = document.getElementById('ovVuBar');
+    const lbl  = document.getElementById('ovVuLbl');
+    ovVuInterval = setInterval(() => {
+      analyzer.getByteFrequencyData(data);
+      const avg = data.reduce((a,b)=>a+b,0) / data.length;
+      const pct = Math.min(100, avg * 2.5);
+      if (bar) {
+        bar.style.width = pct + '%';
+        bar.className = 'ov-vu-bar' + (pct>80?' hot':pct>55?' warn':'');
+      }
+      if (lbl) lbl.textContent = Math.round(pct) + '%';
+    }, 50);
+  } catch(e) {
+    const lbl = document.getElementById('ovVuLbl');
+    if (lbl) lbl.textContent = 'N/A';
+  }
+}
+
+function stopOverlayVu() {
+  if (ovVuInterval) { clearInterval(ovVuInterval); ovVuInterval = null; }
+  if (ovVuStream)   { ovVuStream.getTracks().forEach(t=>t.stop()); ovVuStream = null; }
+  if (ovVuCtx)      { ovVuCtx.close().catch(()=>{}); ovVuCtx = null; }
+}
+
+// ---------------------------------------------------------------------------
+// Mic keepalive — Android background mic workaround
+// Tre tecniche combinate per tenere il mic attivo con schermo bloccato:
+// 1. getUserMedia con constraints "telephony" (sampleRate 8000, channelCount 1)
+// 2. Loopback silenzioso: mic → AudioContext → GainNode(0) → destination
+// 3. OscillatorNode silenzioso come backup per tenere attivo l'AudioContext
+// ---------------------------------------------------------------------------
+let keepaliveCtx    = null;
+let keepaliveStream = null;
+let keepaliveNodes  = [];  // [source, gain, oscillator]
+
+async function startMicKeepalive() {
+  if (keepaliveCtx) return; // già attivo
+  try {
+    // Constraints "telephony" — convince Android che è una chiamata
+    keepaliveStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation:  true,
+        noiseSuppression:  true,
+        autoGainControl:   true,
+        channelCount:      1,
+        sampleRate:        8000,  // frequenza telefonica
+      }
+    });
+
+    keepaliveCtx = new (window.AudioContext || window.webkitAudioContext)({
+      sampleRate: 8000,
+      latencyHint: 'interactive',
+    });
+    await keepaliveCtx.resume();
+
+    // Loopback silenzioso: mic → gain(0) → destination
+    // Android vede mic occupato da un AudioContext attivo → non lo sospende
+    const src  = keepaliveCtx.createMediaStreamSource(keepaliveStream);
+    const gain = keepaliveCtx.createGain();
+    gain.gain.value = 0;  // silenzioso — nessun feedback audio
+    src.connect(gain);
+    gain.connect(keepaliveCtx.destination);
+
+    // Oscillator silenzioso di backup per tenere l'AudioContext vivo
+    const osc = keepaliveCtx.createOscillator();
+    const oscGain = keepaliveCtx.createGain();
+    oscGain.gain.value = 0;
+    osc.connect(oscGain);
+    oscGain.connect(keepaliveCtx.destination);
+    osc.start();
+
+    keepaliveNodes = [src, gain, osc, oscGain];
+    addLog('Mic keepalive attivo (telephony mode)', 'ok');
+  } catch(e) {
+    addLog('Mic keepalive non disponibile: ' + e.message, 'warn');
+  }
+}
+
+function stopMicKeepalive() {
+  keepaliveNodes.forEach(n => { try { n.disconnect(); } catch(x) {} });
+  keepaliveNodes = [];
+  if (keepaliveStream) { keepaliveStream.getTracks().forEach(t => t.stop()); keepaliveStream = null; }
+  if (keepaliveCtx)    { keepaliveCtx.close().catch(()=>{}); keepaliveCtx = null; }
+}
+
+// VU meter mic nella schermata operativa (usa il track LiveKit)
+function startMicVu(track) {
+  if (!track?.mediaStreamTrack) return;
+  try {
+    micVuCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const stream   = new MediaStream([track.mediaStreamTrack]);
+    const src      = micVuCtx.createMediaStreamSource(stream);
+    const analyzer = micVuCtx.createAnalyser();
+    analyzer.fftSize = 256;
+    src.connect(analyzer);
+    const data = new Uint8Array(analyzer.frequencyBinCount);
+    const bar  = document.getElementById('micVuBar');
+    const pct  = document.getElementById('micVuPct');
+    micVuInterval = setInterval(() => {
+      analyzer.getByteFrequencyData(data);
+      const avg = data.reduce((a,b)=>a+b,0) / data.length;
+      const p   = Math.min(100, avg * 2.5);
+      if (bar) {
+        bar.style.width = p + '%';
+        bar.className = 'mic-vu-bar-inner' + (p>80?' hot':p>55?' warn':'');
+      }
+      if (pct) pct.textContent = Math.round(p) + '%';
+    }, 50);
+  } catch(e) {}
+}
+
+function stopMicVu() {
+  if (micVuInterval) { clearInterval(micVuInterval); micVuInterval = null; }
+  if (micVuCtx)      { micVuCtx.close().catch(()=>{}); micVuCtx = null; }
+}
 
 // ---------------------------------------------------------------------------
 // Log
@@ -161,26 +450,42 @@ function addLog(msg, type = "") {
 // Unlock
 // ---------------------------------------------------------------------------
 async function unlock() {
+  // Ferma VU meter overlay e test audio
+  stopOverlayVu();
+  if (testAudioEl) { testAudioEl.pause(); testAudioEl = null; }
   document.getElementById("overlay").style.display = "none";
+
   // Avvia silent audio (Spotify approach)
-  document.getElementById("silentAudio").volume = 0.001;
-  document.getElementById("silentAudio").play().catch(()=>{});
+  const silent = document.getElementById("silentAudio");
+  silent.volume = 0.001;
+  silent.play().catch(()=>{});
+
   // MediaSession
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: `TV Intercom — CAM ${CAMERA_ID}`, artist: 'In servizio', album: 'TV Intercom',
     });
     navigator.mediaSession.playbackState = 'playing';
-    navigator.mediaSession.setActionHandler('play', () => document.getElementById("silentAudio").play());
-    navigator.mediaSession.setActionHandler('pause', () => document.getElementById("silentAudio").play());
+    navigator.mediaSession.setActionHandler('play',  () => silent.play());
+    navigator.mediaSession.setActionHandler('pause', () => silent.play());
+    // ⏮ MIC ON — ⏭ MIC OFF (funziona con schermo bloccato)
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      micOn();
+      addLog('MediaSession: ⏮ MIC ON', 'warn');
+    });
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      micOff();
+      addLog('MediaSession: ⏭ MIC OFF', '');
+    });
   }
   // Wake Lock
   if ('wakeLock' in navigator) {
     try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
   }
-  // Connetti WebSocket istruzioni
+  // Mic keepalive — tiene il mic attivo con schermo bloccato su Android
+  await startMicKeepalive();
+  // Connetti
   connectWS();
-  // Connetti LiveKit voce
   connectLiveKit();
 }
 
@@ -192,12 +497,14 @@ function connectWS() {
   ws.onopen = () => {
     document.getElementById("wsDot").className = "dot green";
     document.getElementById("wsLabel").textContent = "ISTRUZIONI ✓";
+    document.getElementById("wsReconn").style.display = "none";
     addLog("Istruzioni connesse", "ok");
     startHeartbeat();
   };
   ws.onclose = () => {
     document.getElementById("wsDot").className = "dot red";
     document.getElementById("wsLabel").textContent = "ISTRUZIONI";
+    document.getElementById("wsReconn").style.display = "inline";
     reconnectTimer = setTimeout(connectWS, 3000);
   };
   ws.onmessage = (event) => {
@@ -265,12 +572,14 @@ async function connectLiveKit() {
     lkRoom.on(RoomEvent.Connected, () => {
       document.getElementById("lkDot").className = "dot green";
       document.getElementById("lkLabel").textContent = "VOCE ✓";
+      document.getElementById("lkReconn").style.display = "none";
       addLog("Voce connessa", "ok");
     });
 
     lkRoom.on(RoomEvent.Disconnected, () => {
       document.getElementById("lkDot").className = "dot red";
       document.getElementById("lkLabel").textContent = "VOCE";
+      document.getElementById("lkReconn").style.display = "inline";
       addLog("Voce disconnessa — riconnessione...", "warn");
       setTimeout(connectLiveKit, 3000);
     });
@@ -292,16 +601,20 @@ async function connectLiveKit() {
       if (badge) badge.className = regiaActive ? 'dot orange' : 'dot green';
     });
 
+    lkUrl = data.url;  // salva per uso in joinConference
     await lkRoom.connect(data.url, data.token);
 
     // Pubblica track audio MUTATO — diventa attivo solo con PTT
     localTrack = await LivekitClient.createLocalAudioTrack({
       echoCancellation: true, noiseSuppression: true,
     });
-    await lkRoom.localParticipant.publishTrack(localTrack, { muted: true });
-    // Muto esplicito — publishTrack muted:true non sempre sufficiente su tutti i browser
+    await lkRoom.localParticipant.publishTrack(localTrack);
+    await new Promise(r => setTimeout(r, 300));
     await localTrack.mute();
-    addLog("Microfono pronto — PTT attivo", "ok");
+
+    // Avvia VU meter mic indipendente dal mute LiveKit
+    startMicVu(localTrack);
+    addLog("Microfono pronto — tocca per parlare", "ok");
 
   } catch(e) {
     addLog("Errore LiveKit: " + e.message, "err");
@@ -310,122 +623,66 @@ async function connectLiveKit() {
 }
 
 // ---------------------------------------------------------------------------
-// PTT + LATCH
+// MIC TOGGLE — un tocco ON, un tocco OFF
 // ---------------------------------------------------------------------------
-let latchMode = false;       // false = PTT, true = Latch
-let latchActive = false;     // mic aperto in latch
-let lastTapTime = 0;
-const DOUBLE_TAP_MS = 350;
+let micOpen = false;
 
-function pttOn() {
-  if (!localTrack || latchMode) return;
+function micOn() {
+  if (!localTrack) return;
+  micOpen = true;
   localTrack.unmute();
-  if (localTrack._confTrack) localTrack._confTrack.unmute();
+  setConfMic(true);
   document.getElementById("pttBtn").classList.add("active");
   document.getElementById("pttLabel").textContent = "● TX";
+  addLog("Mic APERTO", "warn");
 }
 
-function pttOff() {
-  if (!localTrack || latchMode) return;
+function micOff() {
+  if (!localTrack) return;
+  micOpen = false;
   localTrack.mute();
-  if (localTrack._confTrack) localTrack._confTrack.mute();
+  setConfMic(false);
   document.getElementById("pttBtn").classList.remove("active");
-  document.getElementById("pttLabel").textContent = "TIENI PER PARLARE";
+  document.getElementById("pttLabel").textContent = "TOCCA PER PARLARE";
+  addLog("Mic CHIUSO", "");
 }
 
-function pttTap() {
-  const now = Date.now();
-  const isDouble = (now - lastTapTime) < DOUBLE_TAP_MS;
-  lastTapTime = now;
-
-  if (isDouble) {
-    // Doppio tap — toglie la latch mode
-    if (latchMode) {
-      latchMode = false;
-      latchActive = false;
-      localTrack?.mute();
-      document.getElementById("pttBtn").classList.remove("active");
-      document.getElementById("pttBtn").style.borderColor = '';
-      document.getElementById("pttLabel").textContent = "TIENI PER PARLARE";
-      addLog("Latch MODE disattivato", "warn");
-    }
-    return;
-  }
-
-  if (latchMode) {
-    // In latch: tap singolo toglie/mette muto
-    latchActive = !latchActive;
-    if (latchActive) {
-      localTrack?.unmute();
-      document.getElementById("pttBtn").classList.add("active");
-      document.getElementById("pttLabel").textContent = "● LATCH TX";
-      addLog("Latch: mic APERTO", "warn");
-    } else {
-      localTrack?.mute();
-      document.getElementById("pttBtn").classList.remove("active");
-      document.getElementById("pttLabel").textContent = "LATCH — tocca per parlare";
-      addLog("Latch: mic CHIUSO", "");
-    }
-  }
+function micToggle() {
+  if (micOpen) micOff();
+  else micOn();
 }
 
-function enableLatch() {
-  latchMode = true;
-  latchActive = false;
-  document.getElementById("pttBtn").style.borderColor = 'var(--yellow, #ffd60a)';
-  document.getElementById("pttLabel").textContent = "LATCH — tocca per parlare";
-  addLog("Latch MODE attivato — doppio tap per uscire", "warn");
-}
-
-// Pulsante touch — PTT con rilevamento doppio tap per latch
+// Pulsante touch — toggle
 const pttBtnEl = document.getElementById("pttBtn");
-let pttTouchStart = 0;
 
 pttBtnEl.addEventListener('touchstart', (e) => {
   e.preventDefault();
-  pttTouchStart = Date.now();
-  const now = Date.now();
-  if ((now - lastTapTime) < DOUBLE_TAP_MS && !latchMode) {
-    // Doppio tap — attiva latch
-    enableLatch();
-    lastTapTime = 0;
-    return;
-  }
-  lastTapTime = now;
-  pttOn();
+  micToggle();
 }, { passive: false });
 
 pttBtnEl.addEventListener('touchend', (e) => {
   e.preventDefault();
-  const held = Date.now() - pttTouchStart;
-  if (latchMode) {
-    pttTap();
-  } else {
-    pttOff();
-  }
+  // niente — il toggle è già avvenuto in touchstart
 }, { passive: false });
 
 // Mouse (desktop)
-pttBtnEl.addEventListener('mousedown', pttOn);
-pttBtnEl.addEventListener('mouseup', pttOff);
-pttBtnEl.addEventListener('mouseleave', pttOff);
+pttBtnEl.addEventListener('click', (e) => {
+  e.preventDefault();
+  micToggle();
+});
 
-// Tasto spazio come PTT da tastiera (desktop)
-document.addEventListener('keydown', e => { if (e.code === 'Space' && !e.repeat) pttOn(); });
-document.addEventListener('keyup',   e => { if (e.code === 'Space') pttOff(); });
+// Tasto spazio da tastiera (desktop) — toggle on keydown, no repeat
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !e.repeat) { e.preventDefault(); micToggle(); }
+});
 
 // ---------------------------------------------------------------------------
 // Tasto Bluetooth — Enter (tasto piccolo shutter)
-// Tap singolo  → PTT toggle (apre/chiude mic)
-// Doppio tap   → attiva/disattiva Latch
+// Tap singolo  → toggle mic
 // Tap lungo    → Replay ultima istruzione
 // ---------------------------------------------------------------------------
-let btPressTime   = 0;
-let btTapCount    = 0;
-let btTapTimer    = null;
-let btPttOpen     = false;
-const BT_LONG_MS  = 800;   // soglia tap lungo
-const BT_DTAP_MS  = 350;   // finestra doppio tap
+let btPressTime = 0;
+const BT_LONG_MS = 800;
 
 document.addEventListener('keydown', e => {
   if (e.code !== 'Enter' || e.repeat) return;
@@ -436,41 +693,14 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => {
   if (e.code !== 'Enter') return;
   e.preventDefault();
-
   const held = Date.now() - btPressTime;
-
-  // Tap lungo — Replay
   if (held >= BT_LONG_MS) {
     addLog("BT: tap lungo → Replay", "warn");
     requestReplay();
-    btTapCount = 0;
-    if (btTapTimer) clearTimeout(btTapTimer);
-    return;
+  } else {
+    micToggle();
+    addLog("BT: tap → mic " + (micOpen ? "ON" : "OFF"), micOpen ? "warn" : "");
   }
-
-  // Tap corto — conta i tap
-  btTapCount++;
-  if (btTapTimer) clearTimeout(btTapTimer);
-
-  btTapTimer = setTimeout(() => {
-    // Tap singolo — PTT toggle (doppio tap ignorato sul BT)
-    if (!latchMode) {
-      if (btPttOpen) {
-        pttOff();
-        btPttOpen = false;
-        addLog("BT: tap → PTT OFF", "");
-      } else {
-        pttOn();
-        btPttOpen = true;
-        addLog("BT: tap → PTT ON", "warn");
-      }
-    } else {
-      // In latch mode — toggle mic
-      pttTap();
-      addLog("BT: tap → Latch toggle", "warn");
-    }
-    btTapCount = 0;
-  }, BT_DTAP_MS);
 });
 
 // ---------------------------------------------------------------------------
@@ -479,12 +709,23 @@ document.addEventListener('keyup', e => {
 let confRoom = null;
 let confTrack = null;
 
+// Helper: controlla mic in conference via API ufficiale LiveKit
+// Più affidabile di track.mute/unmute per la conference room
+async function setConfMic(active) {
+  if (!confRoom) return;
+  try {
+    await confRoom.localParticipant.setMicrophoneEnabled(active);
+  } catch(e) {}
+}
+
 async function joinConference(token) {
   if (confRoom) await leaveConference();
   addLog("Entrando in canale conference...", "warn");
   try {
     const { Room, RoomEvent } = LivekitClient;
-    confRoom = new Room();
+    confRoom = new Room({
+      audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true },
+    });
     confRoom.on(RoomEvent.TrackSubscribed, (track) => {
       if (track.kind === 'audio') {
         const el = track.attach();
@@ -492,11 +733,18 @@ async function joinConference(token) {
         document.body.appendChild(el);
       }
     });
-    await confRoom.connect(lkRoom.url || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/livekit`, token);
-    confTrack = await LivekitClient.createLocalAudioTrack({ echoCancellation: true, noiseSuppression: true });
-    await confRoom.localParticipant.publishTrack(confTrack, { muted: true });
-    // Collega il PTT anche alla conference room
-    localTrack._confTrack = confTrack;
+    await confRoom.connect(lkUrl, token);
+
+    // Abilita mic poi disabilita subito — crea il track già muto
+    await confRoom.localParticipant.setMicrophoneEnabled(true);
+    await confRoom.localParticipant.setMicrophoneEnabled(false);
+
+    // Se mic è già aperto, sincronizza conference
+    if (micOpen) {
+      await setConfMic(true);
+      addLog("Conference: mic già aperto — conf mic sincronizzato", "warn");
+    }
+
     addLog("Conference: connesso ✓", "ok");
     document.getElementById("lkLabel").textContent = "CONF ✓";
   } catch(e) {
@@ -509,7 +757,6 @@ async function leaveConference() {
   await confRoom.disconnect();
   confRoom = null;
   confTrack = null;
-  if (localTrack) localTrack._confTrack = null;
   addLog("Conference: uscito", "warn");
   document.getElementById("lkLabel").textContent = "VOCE ✓";
 }
@@ -522,10 +769,24 @@ document.addEventListener('visibilitychange', async () => {
     if (!wakeLock || wakeLock.released) {
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
     }
+    // Resume keepalive AudioContext se sospeso da Android
+    if (keepaliveCtx?.state === 'suspended') {
+      keepaliveCtx.resume().catch(()=>{});
+      addLog('Mic keepalive ripristinato', 'warn');
+    }
     if (!ws || ws.readyState !== WebSocket.OPEN) connectWS();
     if (!lkRoom || lkRoom.state !== 'connected') connectLiveKit();
   }
 });
+
+// Avvia VU meter mic nell'overlay non appena la pagina è pronta
+// (richiede interazione utente per getUserMedia — parte al primo tocco)
+document.addEventListener('touchstart', function initOverlayVu() {
+  startOverlayVu();
+  document.removeEventListener('touchstart', initOverlayVu);
+}, { once: true });
+// Su desktop parte subito
+startOverlayVu();
 </script>
 </body>
 </html>
