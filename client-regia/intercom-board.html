@@ -258,6 +258,19 @@ body {
 }
 .ov-test-btn:active { background:rgba(0,200,255,0.1); }
 .ov-test-status { font-size:9px; color:var(--muted); text-align:center; margin-top:6px; min-height:14px; letter-spacing:1px; }
+
+/* Mic selector dropdown */
+.ov-mic-select {
+  width:100%; padding:10px 12px; border-radius:6px;
+  background:var(--bg); border:1px solid var(--border); color:var(--text);
+  font-family:var(--mono); font-size:11px; letter-spacing:1px;
+  cursor:pointer; outline:none; appearance:none;
+  -webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%234a6070'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 12px center;
+}
+.ov-mic-select:focus { border-color:var(--accent); }
 .ov-enter-btn {
   width:100%; max-width:340px;
   background:var(--accent); border:none; border-radius:8px; padding:16px 32px;
@@ -313,14 +326,17 @@ body {
 
   <!-- VU meter mic -->
   <div class="ov-card">
-    <div class="ov-card-title">🎤 Livello microfono</div>
-    <div class="ov-vu-row">
+    <div class="ov-card-title">🎤 Microfono</div>
+    <select id="ovMicSelect" class="ov-mic-select" onchange="ovChangeMic(this.value)">
+      <option value="">Caricamento periferiche...</option>
+    </select>
+    <div class="ov-vu-row" style="margin-top:10px;">
       <span style="font-size:16px;">🎤</span>
       <div class="ov-vu-wrap"><div class="ov-vu-bar" id="ovVuBar"></div></div>
       <span style="font-size:9px;color:var(--muted);min-width:32px;text-align:right;" id="ovVuLbl">—</span>
     </div>
     <div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-top:8px;text-align:center;">
-      Parla per verificare che il microfono riceva segnale
+      Seleziona il microfono per la regia e verifica il livello
     </div>
   </div>
 
@@ -579,9 +595,7 @@ async function connectAllRooms() {
 
       // Entra in room cam con mic MUTATO di default
       if (key !== 'general') {
-        const track = await LivekitClient.createLocalAudioTrack({
-          echoCancellation: true, noiseSuppression: true,
-        });
+        const track = await LivekitClient.createLocalAudioTrack(micConstraints());
         await room.localParticipant.publishTrack(track);
         await new Promise(r => setTimeout(r, 300));
         await track.mute();
@@ -871,8 +885,11 @@ let vuInterval = null;
 
 function startMicMeter() {
   if (vuInterval) return; // già attivo
-  // Usa getUserMedia indipendente — non dipende dal mute LiveKit
-  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+  // Usa getUserMedia con il mic selezionato — indipendente dal mute LiveKit
+  const constraints = selectedMicId
+    ? {audio: {deviceId: {exact: selectedMicId}}, video: false}
+    : {audio: true, video: false};
+  navigator.mediaDevices.getUserMedia(constraints)
     .then(stream => {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const src = ctx.createMediaStreamSource(stream);
@@ -984,6 +1001,52 @@ let ovVuCtx        = null;
 let ovVuInterval   = null;
 let masterVolume   = 0.8;   // volume master ascolto camere (0-1)
 let masterMuted    = false; // mute globale ascolto
+let selectedMicId  = '';    // deviceId microfono selezionato (vuoto = default)
+
+// Enumera periferiche audio input e popola il dropdown
+async function ovEnumerateDevices() {
+  try {
+    // Richiedi permessi mic prima di enumerare (altrimenti i label sono vuoti)
+    const tempStream = await navigator.mediaDevices.getUserMedia({audio: true});
+    tempStream.getTracks().forEach(t => t.stop());
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices.filter(d => d.kind === 'audioinput');
+    const select = document.getElementById('ovMicSelect');
+    if (!select) return;
+    select.innerHTML = '';
+    audioInputs.forEach((dev, idx) => {
+      const opt = document.createElement('option');
+      opt.value = dev.deviceId;
+      opt.textContent = dev.label || `Microfono ${idx + 1}`;
+      select.appendChild(opt);
+    });
+    // Seleziona il primo (default)
+    if (audioInputs.length > 0 && !selectedMicId) {
+      selectedMicId = audioInputs[0].deviceId;
+    }
+    if (selectedMicId) select.value = selectedMicId;
+    log(`Periferiche audio: ${audioInputs.length} mic trovati`, 'ok');
+  } catch(e) {
+    log('Errore enumerazione periferiche: ' + e.message, 'err');
+  }
+}
+
+// Cambio microfono dal dropdown — riavvia VU meter con il nuovo device
+async function ovChangeMic(deviceId) {
+  selectedMicId = deviceId;
+  // Riavvia VU meter overlay con il nuovo mic
+  ovStopVu();
+  await ovStartVu();
+  log(`Mic selezionato: ${document.getElementById('ovMicSelect')?.selectedOptions[0]?.textContent || deviceId}`, 'info');
+}
+
+// Helper: restituisce i constraints audio con il mic selezionato
+function micConstraints() {
+  const c = { echoCancellation: true, noiseSuppression: true };
+  if (selectedMicId) c.deviceId = { exact: selectedMicId };
+  return c;
+}
 
 function ovUpdateVolume(val) {
   masterVolume = val / 100;
@@ -1027,7 +1090,10 @@ async function ovTestAudio() {
 async function ovStartVu() {
   if (ovVuStream) return;
   try {
-    ovVuStream  = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+    const constraints = selectedMicId
+      ? {audio: {deviceId: {exact: selectedMicId}}, video: false}
+      : {audio: true, video: false};
+    ovVuStream  = await navigator.mediaDevices.getUserMedia(constraints);
     ovVuCtx     = new (window.AudioContext || window.webkitAudioContext)();
     const src   = ovVuCtx.createMediaStreamSource(ovVuStream);
     const anal  = ovVuCtx.createAnalyser();
@@ -1107,12 +1173,14 @@ function toggleMasterMute() {
 // Avvio
 buildMatrix();
 buildConfButtons();
-// Avvia VU overlay al primo tocco su mobile
-document.addEventListener('touchstart', function initOvVu() {
-  ovStartVu();
-  document.removeEventListener('touchstart', initOvVu);
+// Enumera periferiche e avvia VU overlay
+// Su mobile: al primo tocco (serve interazione per getUserMedia)
+document.addEventListener('touchstart', function initOvSetup() {
+  ovEnumerateDevices().then(() => ovStartVu());
+  document.removeEventListener('touchstart', initOvSetup);
 }, { once: true });
-ovStartVu(); // su desktop parte subito
+// Su desktop parte subito
+ovEnumerateDevices().then(() => ovStartVu());
 // init() viene chiamata da startRegia()
 </script>
 </body>
