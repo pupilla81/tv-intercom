@@ -12,12 +12,13 @@ Avvio:
 import asyncio
 import json
 import logging
+import re
 import sys
 import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -102,6 +103,7 @@ class AppState:
         self.script_loaded: bool = False
         self.metadata: dict = {}
         self.all_cues: list[Cue] = []
+        self.script_lines: list[dict] = []   # blocchi testo+cue per il prompter
         self.engine: Optional[CueEngine] = None
         self.operator_connections: dict[int, WebSocket] = {}
         self.director_connections: list[WebSocket] = []
@@ -458,6 +460,96 @@ async def api_load_script(req: LoadScriptRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/api/scripts")
+async def api_scripts():
+    """Lista i file JSON copione disponibili nella cartella script-parser."""
+    script_dir = Path(__file__).parent.parent / "script-parser"
+    files = sorted([f.name for f in script_dir.glob("*.json")])
+    return {"files": files}
+
+@app.get("/api/script/download")
+async def api_script_download(name: str = ""):
+    """Scarica un file JSON. Se name specificato scarica quel file, altrimenti il copione attivo."""
+    from fastapi.responses import FileResponse
+    script_dir = Path(__file__).parent.parent / "script-parser"
+    if name:
+        p = script_dir / name
+        if not p.exists() or p.suffix != ".json":
+            raise HTTPException(status_code=404, detail=f"File {name} non trovato")
+        return FileResponse(str(p), media_type="application/json", filename=name)
+    if not state.script_loaded or not state.metadata:
+        raise HTTPException(status_code=404, detail="Nessun copione attivo")
+    title = state.metadata.get("title", "copione")
+    safe  = re.sub(r'[^\w\s-]', '', title).strip()
+    safe  = re.sub(r'[\s-]+', '_', safe).lower() or "copione"
+    p = script_dir / f"{safe}.json"
+    if not p.exists():
+        p = script_dir / "script.json"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="File non trovato su disco")
+    return FileResponse(str(p), media_type="application/json", filename=f"{safe}.json")
+
+@app.delete("/api/script/file")
+async def api_script_file_delete(name: str):
+    """Elimina un singolo file JSON copione dalla libreria."""
+    script_dir  = Path(__file__).parent.parent / "script-parser"
+    script_path = script_dir / name
+    if not script_path.exists() or script_path.suffix != ".json":
+        raise HTTPException(status_code=404, detail=f"File {name} non trovato")
+    script_path.unlink()
+    log.info(f"File copione eliminato: {name}")
+    if state.script_loaded:
+        title = state.metadata.get("title", "")
+        safe  = re.sub(r'[^\w\s-]', '', title).strip()
+        safe  = re.sub(r'[\s-]+', '_', safe).lower()
+        if name in (f"{safe}.json", "script.json"):
+            state.script_loaded = False
+            state.metadata      = {}
+            state.all_cues      = []
+            state.script_lines  = []
+            state.engine        = None
+            await notify_directors({"type": "script_cleared"})
+    return {"ok": True, "deleted": name}
+
+@app.post("/api/script/upload-file")
+async def api_script_upload_file(file: UploadFile = File(...)):
+    """Riceve un file JSON dal browser, lo salva e lo carica nel server."""
+    log.info(f"📄 Upload file: {file.filename}")
+    try:
+        content = await file.read()
+        script = json.loads(content)
+
+        # Salva il file
+        script_dir = Path(__file__).parent.parent / "script-parser"
+        # Usa il nome originale del file se è un .json, altrimenti script.json
+        filename = file.filename if file.filename and file.filename.endswith(".json") else "script.json"
+        script_path = script_dir / filename
+        script_path.write_bytes(content)
+        log.info(f"  Salvato: {script_path}")
+
+        # Carica con il parser unificato (gestisce entrambi i formati)
+        meta, cues = await load_script_file(str(script_path))
+
+        auto   = get_auto_cues(state.all_cues)
+        manual = get_manual_cues(state.all_cues)
+
+        # Carica script_lines se presenti nel JSON (per il prompter)
+        state.script_lines = script.get("script_lines", [])
+
+        await notify_directors({"type": "script_loaded", "metadata": state.metadata})
+        return {
+            "ok": True,
+            "title": state.metadata.get("title", ""),
+            "cues_total": len(state.all_cues),
+            "cues_auto": len(auto),
+            "cues_manual": len(manual),
+        }
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="File non valido — deve essere un JSON")
+    except Exception as e:
+        log.exception("Errore upload script")
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.get("/api/status")
 async def api_status():
     auto = get_auto_cues(state.all_cues) if state.script_loaded else []
@@ -498,6 +590,31 @@ async def api_cues():
         for c in state.all_cues
     ]
 
+@app.get("/api/script/lines")
+async def api_script_lines():
+    """Script lines con cue risolti inline — per il prompter."""
+    if not state.script_loaded:
+        raise HTTPException(status_code=400, detail="Nessun copione caricato")
+    cue_index = {c.cue_id: c for c in state.all_cues}
+    result = []
+    for block in state.script_lines:
+        if block.get("type") == "cue_ref":
+            cue_id = block.get("cue_id", "")
+            cue = cue_index.get(cue_id)
+            if cue:
+                result.append({
+                    "type": "cue_ref",
+                    "cue_id": cue_id,
+                    "cue_type": cue.trigger.type,
+                    "trigger_text": cue.trigger.text,
+                    "cameras": [i.camera for i in cue.instructions],
+                    "instructions": [{"camera": i.camera, "text": i.text} for i in cue.instructions],
+                    "fired": cue.fired,
+                })
+        else:
+            result.append(block)
+    return result
+
 class FireCueRequest(BaseModel):
     cue_id: str
 
@@ -522,6 +639,29 @@ async def api_fire_cue(req: FireCueRequest):
         state.engine.pointer = max(state.engine.pointer, state.all_cues.index(target) + 1)
     await _dispatch_cue(fc)
     return {"ok": True, "cue_id": req.cue_id}
+
+@app.post("/api/cues/skip")
+async def api_skip_cue(req: FireCueRequest):
+    """Marca un cue come fired senza inviare istruzioni. Avanza il puntatore."""
+    if not state.engine:
+        raise HTTPException(status_code=400, detail="Engine non inizializzato")
+    target = next((c for c in state.all_cues if c.cue_id == req.cue_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Cue {req.cue_id} non trovato")
+    if target.fired:
+        raise HTTPException(status_code=409, detail="Cue già scattato")
+    target.fired = True
+    state.cues_fired_count += 1
+    if target.trigger.type == "line" and target in state.engine.cues:
+        eng_idx = state.engine.cues.index(target)
+        state.engine.pointer = max(state.engine.pointer, eng_idx + 1)
+    await notify_directors({
+        "type": "cue_skipped",
+        "cue_id": req.cue_id,
+        "cameras": [i.camera for i in target.instructions],
+    })
+    log.info(f"⏭ CUE SKIP: {req.cue_id}")
+    return {"ok": True, "cue_id": req.cue_id, "skipped": True}
 
 @app.post("/api/engine/reset")
 async def api_reset():
@@ -550,6 +690,58 @@ async def api_reset():
         log.warning("  Reset richiesto ma engine non inizializzato")
     await notify_directors({"type": "engine_reset"})
     return {"ok": True}
+
+class GotoSceneRequest(BaseModel):
+    scene_id: int
+
+@app.post("/api/engine/goto-scene")
+async def api_goto_scene(req: GotoSceneRequest):
+    """Sposta il puntatore dell'engine all'inizio della scena specificata."""
+    if not state.engine or not state.script_loaded:
+        raise HTTPException(status_code=400, detail="Engine non inizializzato")
+    target_idx = next(
+        (i for i, c in enumerate(state.all_cues)
+         if getattr(c, "scene_id", None) == req.scene_id
+         and c.trigger.type == "line"),
+        None
+    )
+    if target_idx is None:
+        log.info(f"Goto scena {req.scene_id}: nessun cue auto, puntatore invariato")
+    else:
+        state.engine.pointer = target_idx
+        log.info(f"Goto scena {req.scene_id}: puntatore → {target_idx}")
+    await notify_directors({"type": "scene_changed", "scene_id": req.scene_id})
+    return {"ok": True, "scene_id": req.scene_id, "pointer": state.engine.pointer if state.engine else 0}
+
+@app.delete("/api/script/clear")
+async def api_script_clear():
+    """Cancella script.json e svuota cache TTS su disco."""
+    deleted = []
+    script_path = Path(__file__).parent.parent / "script-parser" / "script.json"
+    if script_path.exists():
+        script_path.unlink()
+        deleted.append("script.json")
+        log.info("script.json eliminato")
+    tts_cache_dir = Path(__file__).parent.parent / "script-parser" / "audio" / "_tts_cache"
+    deleted_audio = 0
+    if tts_cache_dir.exists():
+        for f in tts_cache_dir.glob("*.mp3"):
+            f.unlink()
+            deleted_audio += 1
+        deleted.append(f"{deleted_audio} file audio TTS")
+        log.info(f"Cache TTS svuotata: {deleted_audio} file eliminati")
+    if state.tts:
+        state.tts._cache.clear()
+    state.script_loaded = False
+    state.metadata = {}
+    state.all_cues = []
+    state.script_lines = []
+    state.engine = None
+    state.cues_fired_count = 0
+    state.last_text.clear()
+    state.last_audio.clear()
+    await notify_directors({"type": "script_cleared"})
+    return {"ok": True, "deleted": deleted}
 
 @app.get("/api/tts/test-audio")
 async def api_tts_test(text: str = None):
@@ -582,8 +774,23 @@ async def api_audio_devices():
                     "is_default": i == default_input,
                 })
         return {"devices": inputs}
+    except ImportError:
+        return {"devices": [], "note": "sounddevice non disponibile sul server"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"devices": [], "note": str(e)}
+
+@app.post("/api/tts/pregenerate")
+async def api_tts_pregenerate():
+    """Rigenera tutti gli audio TTS per il copione corrente."""
+    if not state.tts:
+        raise HTTPException(status_code=400, detail="TTS non configurato")
+    if not state.script_loaded or not state.all_cues:
+        raise HTTPException(status_code=400, detail="Nessun copione caricato")
+    log.info("TTS pregenerate richiesto dalla dashboard")
+    loop = asyncio.get_event_loop()
+    stats = await loop.run_in_executor(None, state.tts.pregenerate_all, state.all_cues)
+    log.info(f"TTS pregenerate completato: {stats}")
+    return {"ok": True, **stats}
 
 class ConvertScriptRequest(BaseModel):
     text: str
@@ -601,8 +808,13 @@ async def api_script_convert(req: ConvertScriptRequest):
         from doc_to_script import parse_script
         script = parse_script(req.text, req.title, req.date, req.location)
 
-        # Salva il file
-        script_path = Path(__file__).parent.parent / "script-parser" / "script.json"
+        # Nome file dal titolo
+        title = script.get("metadata", {}).get("title", "copione")
+        safe_name = re.sub(r'[^\w\s-]', '', title).strip()
+        safe_name = re.sub(r'[\s-]+', '_', safe_name).lower() or "copione"
+        script_dir = Path(__file__).parent.parent / "script-parser"
+        script_path = script_dir / f"{safe_name}.json"
+
         script_path.write_text(
             json.dumps(script, indent=2, ensure_ascii=False),
             encoding="utf-8"
@@ -614,10 +826,13 @@ async def api_script_convert(req: ConvertScriptRequest):
         auto = get_auto_cues(cues)
         manual = get_manual_cues(cues)
 
+        # Salva script_lines per il prompter
+        state.script_lines = script.get("script_lines", [])
+
         await notify_directors({"type": "script_loaded", "metadata": meta})
         return {
             "ok": True,
-            "title": meta["title"],
+            "title": meta.get("title", ""),
             "cues_total": len(cues),
             "cues_auto": len(auto),
             "cues_manual": len(manual),
@@ -633,6 +848,40 @@ async def api_tts_voices():
         raise HTTPException(status_code=400, detail="TTS non configurato")
     voices = state.tts.list_voices()
     return {"voices": voices}
+
+class TTSConfigRequest(BaseModel):
+    voice_id: Optional[str] = None
+    stability: Optional[float] = None
+    similarity_boost: Optional[float] = None
+    style: Optional[float] = None
+    use_speaker_boost: Optional[bool] = None
+
+@app.post("/api/tts/config")
+async def api_tts_config(req: TTSConfigRequest):
+    """Applica la configurazione TTS al motore in esecuzione."""
+    if not state.tts:
+        raise HTTPException(status_code=400, detail="TTS non configurato")
+    if req.voice_id:
+        state.tts.voice_id = req.voice_id
+        state.tts._cache.clear()
+        log.info(f"TTS voce aggiornata: {req.voice_id}")
+    if req.stability is not None:
+        state.tts._settings_override = getattr(state.tts, '_settings_override', {})
+        state.tts._settings_override['stability'] = req.stability
+    if req.similarity_boost is not None:
+        state.tts._settings_override = getattr(state.tts, '_settings_override', {})
+        state.tts._settings_override['similarity_boost'] = req.similarity_boost
+    if req.style is not None:
+        state.tts._settings_override = getattr(state.tts, '_settings_override', {})
+        state.tts._settings_override['style'] = req.style
+    if req.use_speaker_boost is not None:
+        state.tts._settings_override = getattr(state.tts, '_settings_override', {})
+        state.tts._settings_override['use_speaker_boost'] = req.use_speaker_boost
+    if hasattr(state.tts, '_settings_override') and state.tts._settings_override:
+        from tts_engine import TTS_SETTINGS
+        for k, v in state.tts._settings_override.items():
+            TTS_SETTINGS[k] = v
+    return {"ok": True, "voice_id": state.tts.voice_id}
 
 class RegenerateRequest(BaseModel):
     text: str
@@ -660,6 +909,14 @@ class STTStartRequest(BaseModel):
     device: int = 7
     engine: str = "deepgram"
 
+@app.get("/api/stt/token")
+async def api_stt_token():
+    """Restituisce la API key Deepgram per lo STT nel browser."""
+    key = os.environ.get("DEEPGRAM_API_KEY", "")
+    if not key:
+        raise HTTPException(status_code=503, detail="DEEPGRAM_API_KEY non configurata sul server")
+    return {"api_key": key}
+
 @app.post("/api/stt/start")
 async def api_stt_start(req: STTStartRequest):
     """Registra che lo STT è stato avviato — notifica la dashboard."""
@@ -675,11 +932,13 @@ async def api_stt_start(req: STTStartRequest):
     return {"ok": True}
 
 @app.post("/api/stt/stop")
-async def api_stt_stop():
-    """Segnala che lo STT deve fermarsi — notifica la dashboard."""
+async def api_stt_stop(source: str = ""):
+    """Segnala che lo STT deve fermarsi.
+    Se source='browser', non notifica gli altri client per non fermare il CLI."""
     state.stt_active = False
-    await notify_directors({"type": "stt_stopped"})
-    log.info("STT fermato dalla dashboard")
+    if source != "browser":
+        await notify_directors({"type": "stt_stopped"})
+    log.info(f"STT fermato (source={source or 'dashboard'})")
     return {"ok": True}
 
 class STTChunkRequest(BaseModel):
@@ -687,17 +946,23 @@ class STTChunkRequest(BaseModel):
 
 @app.post("/api/stt/chunk")
 async def api_stt_chunk(req: STTChunkRequest):
-    if not state.engine:
-        return {"fired": []}
-    log.debug(f"🎤 STT chunk (ptr={state.engine.pointer}): '{req.text[:80]}'")
-    fired = state.engine.process(req.text)
-    if fired:
-        log.info(f"🎤 STT → {len(fired)} cue fired: "
-                 f"{[f.cue.cue_id for f in fired]} | ptr={state.engine.pointer}")
-    return {
-        "fired": [f.cue.cue_id for f in fired],
-        "pointer": state.engine.pointer,
-    }
+    try:
+        if not state.engine:
+            return {"fired": [], "pointer": 0}
+        log.debug(f"🎤 STT chunk (ptr={state.engine.pointer}): '{req.text[:80]}'")
+        fired = state.engine.process(req.text)
+        # Notifica la regia con la trascrizione — aggiorna box STT nel prompter
+        await notify_directors({"type": "stt_transcript", "text": req.text})
+        if fired:
+            log.info(f"🎤 STT → {len(fired)} cue fired: "
+                     f"{[f.cue.cue_id for f in fired]} | ptr={state.engine.pointer}")
+        return {
+            "fired": [f.cue.cue_id for f in fired],
+            "pointer": state.engine.pointer,
+        }
+    except Exception as e:
+        log.error(f"Errore stt/chunk: {e}", exc_info=True)
+        return {"fired": [], "pointer": 0, "error": str(e)}
 
 # ---------------------------------------------------------------------------
 # API Logging — lettura log e controllo livello
