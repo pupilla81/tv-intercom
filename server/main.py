@@ -409,7 +409,6 @@ async def load_script_file(path: str):
     old_title = state.metadata.get("title", "")
     if state.script_loaded:
         log.info(f"  Reset stato precedente: '{old_title}'")
-    # Reset engine
     if state.engine:
         state.engine.reset()
     state.cues_fired_count = 0
@@ -427,7 +426,7 @@ async def load_script_file(path: str):
     if flushed:
         log.info(f"  Code svuotate: {flushed} item residui")
 
-    # --- Carica nuovo copione ---
+    # --- Carica nuovo copione (parser unificato: entrambi i formati) ---
     meta, cues = load_script(path)
     state.metadata = meta
     state.all_cues = cues
@@ -435,19 +434,19 @@ async def load_script_file(path: str):
     auto = get_auto_cues(cues)
     manual = get_manual_cues(cues)
     state.engine = CueEngine(auto, on_cue_fired=on_cue_fired)
-    log.info(f"  Copione: '{meta.get('title','?')}' | "
-             f"{len(cues)} cue totali ({len(auto)} auto, {len(manual)} manuali)")
 
-    # Pre-genera tutti gli audio TTS in background
-    if state.tts:
-        log.info("  TTS pre-generazione audio in corso...")
-        loop = asyncio.get_event_loop()
-        stats = await loop.run_in_executor(None, state.tts.pregenerate_all, cues)
-        elapsed = (time.time() - t0) * 1000
-        log.info(f"  TTS completato in {elapsed:.0f}ms | stats={stats}")
-    else:
-        elapsed = (time.time() - t0) * 1000
-        log.info(f"  Copione caricato in {elapsed:.0f}ms (TTS disabilitato)")
+    # Carica script_lines per il prompter (se presenti nel JSON)
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        state.script_lines = raw.get("script_lines", [])
+    except Exception:
+        state.script_lines = []
+
+    elapsed = (time.time() - t0) * 1000
+    log.info(f"  Copione: '{meta.get('title','?')}' | "
+             f"{len(cues)} cue totali ({len(auto)} auto, {len(manual)} manuali) | "
+             f"script_lines: {len(state.script_lines)} | {elapsed:.0f}ms")
+    # TTS pre-generazione NON automatica — usa /api/tts/pregenerate dalla dashboard
 
     return meta, cues
 
@@ -532,9 +531,6 @@ async def api_script_upload_file(file: UploadFile = File(...)):
 
         auto   = get_auto_cues(state.all_cues)
         manual = get_manual_cues(state.all_cues)
-
-        # Carica script_lines se presenti nel JSON (per il prompter)
-        state.script_lines = script.get("script_lines", [])
 
         await notify_directors({"type": "script_loaded", "metadata": state.metadata})
         return {
@@ -825,9 +821,6 @@ async def api_script_convert(req: ConvertScriptRequest):
         meta, cues = await load_script_file(str(script_path))
         auto = get_auto_cues(cues)
         manual = get_manual_cues(cues)
-
-        # Salva script_lines per il prompter
-        state.script_lines = script.get("script_lines", [])
 
         await notify_directors({"type": "script_loaded", "metadata": meta})
         return {
